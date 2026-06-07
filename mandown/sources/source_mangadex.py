@@ -43,11 +43,19 @@ class MangaDexSource(CommonSource):
         # use english if possible, otherwise use the first language that appears
         self.lang_code = (
             "en"
-            if "en" in metadata["attributes"]["title"]
+            if "en" in metadata["attributes"]["availableTranslatedLanguages"]
             else next(iter(metadata["attributes"]["title"]))
         )
-        title: str = metadata["attributes"]["title"][self.lang_code]
-
+        title: str | None = None
+        for AltTitle in metadata["attributes"]["altTitles"]:
+            if self.lang_code in AltTitle.keys():
+                title = AltTitle[self.lang_code]
+                break
+        if title is None:
+            for wt_lang_code, wt_title in metadata["attributes"]["title"].items():
+                title = wt_title
+                self.lang_code = wt_lang_code
+                break
         if metadata["attributes"]["description"]:
             description: str = metadata["attributes"]["description"][self.lang_code]
 
