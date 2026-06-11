@@ -273,7 +273,7 @@ def download_progress(
             pass
 
     # for each chapter
-    for chap in comic.chapters[start:end]:
+    for chap in comic.chapters:
         yield chap.title
         image_urls = comic.get_chapter_image_urls(chap)
         chapter_path = full_path / chap.slug
