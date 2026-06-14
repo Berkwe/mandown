@@ -59,7 +59,7 @@ Where `PROCESS_OPERATIONS` is an option found from running `mandown process --he
 Install the package from PyPI:
 
 ```
-pip3 install mandown
+pip3 install git+https://github.com/Berkwe/mandown
 ```
 
 Install the optional large dependencies for some features of Mandown:
@@ -81,7 +81,7 @@ Or, to build from source:
 Mandown uses [poetry](https://github.com/python-poetry/poetry) for dependency management.
 
 ```
-git clone https://github.com/potatoeggy/mandown.git
+git clone https://github.com/Berkwe/mandown
 poetry install
 poetry build
 pip3 install dist/mandown*.whl
