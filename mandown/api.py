@@ -1,11 +1,11 @@
 # pylint: disable=invalid-name
 
-import shutil
+import shutil, threading, comicon
+
+from typing import Callable
 from pathlib import Path
 from typing import Iterator
-
-import comicon
-
+from .base import Progress
 from . import io, sources
 from .comic import BaseComic
 from .convert_utils import ConvertFormats, convert_one
@@ -235,6 +235,9 @@ def download_progress(
     threads: int = 4,
     only_download_missing: bool = True,
     raise_on_failed_download: bool = True,
+    main_progress: Progress,
+    chapter_progress: Progress,
+    progress_callback: Callable[[], None] | None
 ) -> Iterator[str]:
     """
     Download comic or comic URL `comic` to `path` using `threads` threads.
@@ -271,14 +274,19 @@ def download_progress(
             headers=comic.source.headers,
         ):
             pass
-
+    
     # for each chapter
-    for chap in comic.chapters:
+    for i, chap in enumerate(comic.chapters):
         yield chap.title
         image_urls = comic.get_chapter_image_urls(chap)
         chapter_path = full_path / chap.slug
         chapter_path.mkdir(exist_ok=True)
 
+        main_progress.total = len(comic.chapters)
+        main_progress.current = i
+        main_progress.progress = round((100 / main_progress.total * main_progress.current), 1) if main_progress.total else 0
+        if progress_callback is not None:
+            progress_callback()
         # expect that they're named by numbers only
         skip_images: set[int] = set()
         if only_download_missing:
@@ -316,7 +324,7 @@ def download_progress(
             ) from None
 
         chapter_path = full_path / chap.slug
-
+        chapter_progress.total = len(processed_image_urls)
         for _ in io.download_images(
             processed_image_urls,
             chapter_path,
@@ -324,8 +332,15 @@ def download_progress(
             filestems=filestems,
             threads=threads,
         ):
-            pass
-
+            chapter_progress.current += 1
+            chapter_progress.progress = round(((100 / chapter_progress.total) * chapter_progress.current), 1) if chapter_progress.total else 0
+            if progress_callback is not None:
+                progress_callback()
+        
+        chapter_progress.current = 0
+        chapter_progress.progress = 0
+        chapter_progress.total = 0
+        
         # check if every image was downloaded
         if count := len([f for f in chapter_path.iterdir() if f.is_file()]) != len(
             processed_image_urls
@@ -334,6 +349,10 @@ def download_progress(
                 raise ImageDownloadError(
                     f"Failed to download {len(processed_image_urls) - count} images"
                 )
+    main_progress.current = main_progress.total
+    main_progress.progress = 100
+    if progress_callback is not None:
+        progress_callback()
 
 
 def download(
@@ -345,7 +364,8 @@ def download(
     threads: int = 4,
     only_download_missing: bool = True,
     raise_on_failed_download: bool = True,
-) -> None:
+    progress_callback: Callable[[Progress, Progress], None] | None = None
+    ):
     """
     Download comic or comic URL `comic` to `path` using `threads` threads.
 
@@ -356,14 +376,47 @@ def download(
     :param `threads`: The number of threads to use
     :param `only_download_missing`: If `True`, do not download images
     already in the destination path
+
+    :param `progress_callback`: Optional callback invoked every time `main_progress`
+    or `chapter_progress` changes. It receives no arguments — read the updated
+    state directly from the `main_progress` and `chapter_progress` objects
+    returned by `download()`.
+
+    Main_progress and Chapter_progress are instances of the mandown.base.Progress class. They contain: 
+    progress: progress as a percentage
+    total: total number of segments
+    current: the last processed segment
+    
+    Example:
+    ```python
+        main_progress, chapter_progress, thread = download(comic, progress_callback=lambda: None)
+
+        def on_progress():
+            print(f"Main Progress : {main_progress.current}/{main_progress.total}, "
+                f"Chapter Progress : {chapter_progress.progess}")
+    ```
     """
-    for _ in download_progress(
-        comic,
-        path,
-        start=start,
-        end=end,
-        threads=threads,
-        only_download_missing=only_download_missing,
-        raise_on_failed_download=raise_on_failed_download,
-    ):
-        pass
+    main_progress = Progress()
+    chapter_progress = Progress()
+
+    def _wrapped_callback():
+        if progress_callback is not None:
+            progress_callback(main_progress, chapter_progress)
+
+
+    def _run():
+        for _ in download_progress(
+            comic, path,
+            start=start, end=end, threads=threads,
+            only_download_missing=only_download_missing,
+            raise_on_failed_download=raise_on_failed_download,
+            main_progress=main_progress,
+            chapter_progress=chapter_progress,
+            progress_callback=_wrapped_callback
+        ):
+            pass
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+    thread.join()
+    return main_progress, chapter_progress, thread

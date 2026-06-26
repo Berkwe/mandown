@@ -4,6 +4,12 @@ from comicon import SLUGIFY_ARGS
 from slugify import slugify
 
 
+@dataclass
+class Progress:
+    progress: float = 0# ? percent
+    current: str = 0 # ? Current image
+    total: int = 0 # ? Total image
+
 @dataclass(slots=True)
 class BaseMetadata:
     """
