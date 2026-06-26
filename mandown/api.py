@@ -235,9 +235,9 @@ def download_progress(
     threads: int = 4,
     only_download_missing: bool = True,
     raise_on_failed_download: bool = True,
-    main_progress: Progress,
-    chapter_progress: Progress,
-    progress_callback: Callable[[], None] | None
+    main_progress: Progress = None,
+    chapter_progress: Progress = None,
+    progress_callback: Callable[[], None] | None = None
 ) -> Iterator[str]:
     """
     Download comic or comic URL `comic` to `path` using `threads` threads.
@@ -281,12 +281,12 @@ def download_progress(
         image_urls = comic.get_chapter_image_urls(chap)
         chapter_path = full_path / chap.slug
         chapter_path.mkdir(exist_ok=True)
-
-        main_progress.total = len(comic.chapters)
-        main_progress.current = i
-        main_progress.progress = round((100 / main_progress.total * main_progress.current), 1) if main_progress.total else 0
-        if progress_callback is not None:
-            progress_callback()
+        if main_progress is not None:
+            main_progress.total = len(comic.chapters)
+            main_progress.current = i
+            main_progress.progress = round((100 / main_progress.total * main_progress.current), 1) if main_progress.total else 0
+            if progress_callback is not None:
+                progress_callback()
         # expect that they're named by numbers only
         skip_images: set[int] = set()
         if only_download_missing:
@@ -324,7 +324,8 @@ def download_progress(
             ) from None
 
         chapter_path = full_path / chap.slug
-        chapter_progress.total = len(processed_image_urls)
+        if chapter_progress is not None:
+            chapter_progress.total = len(processed_image_urls)
         for _ in io.download_images(
             processed_image_urls,
             chapter_path,
@@ -332,14 +333,15 @@ def download_progress(
             filestems=filestems,
             threads=threads,
         ):
-            chapter_progress.current += 1
-            chapter_progress.progress = round(((100 / chapter_progress.total) * chapter_progress.current), 1) if chapter_progress.total else 0
-            if progress_callback is not None:
-                progress_callback()
-        
-        chapter_progress.current = 0
-        chapter_progress.progress = 0
-        chapter_progress.total = 0
+            if chapter_progress is not None:
+                chapter_progress.current += 1
+                chapter_progress.progress = round(((100 / chapter_progress.total) * chapter_progress.current), 1) if chapter_progress.total else 0
+                if progress_callback is not None:
+                    progress_callback()
+        if chapter_progress is not None:
+            chapter_progress.current = 0
+            chapter_progress.progress = 0
+            chapter_progress.total = 0
         
         # check if every image was downloaded
         if count := len([f for f in chapter_path.iterdir() if f.is_file()]) != len(
@@ -349,10 +351,11 @@ def download_progress(
                 raise ImageDownloadError(
                     f"Failed to download {len(processed_image_urls) - count} images"
                 )
-    main_progress.current = main_progress.total
-    main_progress.progress = 100
-    if progress_callback is not None:
-        progress_callback()
+    if main_progress is not None:
+        main_progress.current = main_progress.total
+        main_progress.progress = 100
+        if progress_callback is not None:
+            progress_callback()
 
 
 def download(
