@@ -54,7 +54,6 @@ class MangaDexSource(CommonSource):
         if title is None:
             for wt_lang_code, wt_title in metadata["attributes"]["title"].items():
                 title = wt_title
-                self.lang_code = wt_lang_code
                 break
         if metadata["attributes"]["description"]:
             description: str = metadata["attributes"]["description"][self.lang_code]
