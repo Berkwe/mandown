@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 
 from comicon import SLUGIFY_ARGS
 from slugify import slugify
@@ -63,6 +64,7 @@ class BaseChapter:
     title: str
     url: str
     slug: str = ""
+    chapter_number: str = ""
 
     def __post_init__(self) -> None:
         if not self.slug:
@@ -76,7 +78,21 @@ class BaseChapter:
             "title": self.title,
             "url": self.url,
             "slug": self.slug,
+            "chapter_number": self.chapter_number,
         }
+
+    @property
+    def numeric_chapter_number(self) -> Decimal | None:
+        if not self.chapter_number:
+            return None
+        return self.parse_chapter_number(self.chapter_number)
+
+    @staticmethod
+    def parse_chapter_number(chapter_number: str) -> Decimal | None:
+        try:
+            return Decimal(chapter_number)
+        except InvalidOperation:
+            return None
 
     @staticmethod
     def sync_slug_order(

@@ -48,14 +48,61 @@ class BaseComic:
         """
         return self.source.fetch_chapter_image_list(chapter)
 
-    def set_chapter_range(self, *, start: int | None = None, end: int | None = None) -> None:
+    def set_chapter_range(
+        self,
+        *,
+        start: int | None = None,
+        end: int | None = None,
+        by_chapter_number: bool = False,
+    ) -> None:
         """
-        `start` and `end` are zero-indexed.
+        `start` and `end` are zero-indexed unless `by_chapter_number` is True.
 
         :param `start`: The index of the first chapter to keep
         :param `end`: The index of the last chapter to keep (exclusive)
+        :param `by_chapter_number`: Match against the source's real chapter number
+        instead of the chapter's position in the fetched list. When enabled, `end`
+        is inclusive.
         """
+        if by_chapter_number:
+            self._set_chapter_number_range(start=start, end=end)
+            return
+
         self.chapters = self.chapters[start:end]
+
+    def _set_chapter_number_range(self, *, start: int | None, end: int | None) -> None:
+        if start is None and end is None:
+            return
+
+        numbered_chapters = [
+            (chapter, chapter.numeric_chapter_number)
+            for chapter in self.chapters
+            if chapter.numeric_chapter_number is not None
+        ]
+        if not numbered_chapters:
+            raise ValueError("This comic does not expose real chapter numbers.")
+
+        start_number = BaseChapter.parse_chapter_number(str(start)) if start is not None else None
+        end_number = BaseChapter.parse_chapter_number(str(end)) if end is not None else None
+
+        available_numbers = {number for _, number in numbered_chapters}
+        if start_number is not None and start_number not in available_numbers:
+            raise ValueError(f"Chapter {start} was not found.")
+        if end_number is not None and end_number not in available_numbers:
+            raise ValueError(f"Chapter {end} was not found.")
+
+        selected = []
+        for chapter, chapter_number in numbered_chapters:
+            if start_number is not None and chapter_number < start_number:
+                continue
+            if end_number is not None and chapter_number > end_number:
+                continue
+            selected.append(chapter)
+
+        if not selected:
+            raise ValueError(f"No chapters found in range {start} to {end}.")
+
+        self.chapters = selected
 
     def update(self, *, chapters: bool = True, metadata: bool = True) -> None:
         """

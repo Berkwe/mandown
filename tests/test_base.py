@@ -39,7 +39,12 @@ def test_basechapter() -> None:
 
     chapter = mandown.BaseChapter(title=title, url=url)
 
-    assert chapter.asdict() == {"title": title, "url": url, "slug": slug}
+    assert chapter.asdict() == {
+        "title": title,
+        "url": url,
+        "slug": slug,
+        "chapter_number": "",
+    }
 
 
 def test_basecomic() -> None:

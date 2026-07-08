@@ -113,17 +113,29 @@ class MangaDexSource(CommonSource):
         )
 
         chapters: list[BaseChapter] = []
-        for i, c in enumerate(chapter_data):
-            chapter_title: str = c["attributes"]["title"] or f"Chapter {c['attributes']['chapter']}"
-            chapter_slug: str = f"{i}-{slugify(chapter_title).strip()}"
+        for c in chapter_data:
+            chapter_number = c["attributes"]["chapter"] or ""
+            chapter_title: str = c["attributes"]["title"] or f"Chapter {chapter_number}"
+            chapter_slug: str = self._chapter_slug(chapter_number, chapter_title)
             chapters.append(
                 BaseChapter(
                     chapter_title,
                     f"https://mangadex.org/chapter/{c['id']}",
                     chapter_slug,
+                    chapter_number,
                 )
             )
         return chapters
+
+    @staticmethod
+    def _chapter_slug(chapter_number: str, chapter_title: str) -> str:
+        title_slug = slugify(chapter_title).strip()
+        numeric_chapter_number = BaseChapter.parse_chapter_number(chapter_number)
+        if numeric_chapter_number is None:
+            return title_slug
+
+        chapter_number_slug = str(numeric_chapter_number).replace(".", "-").rjust(5, "0")
+        return f"{chapter_number_slug}. {title_slug}"
 
     def _fetch_chapter_feed(self, lang_code: str | None = None) -> list[dict]:
         chapters: list[dict] = []

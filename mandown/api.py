@@ -15,9 +15,6 @@ from .errors import ChapterImageCountMismatchError, ImageDownloadError
 from .processor import ProcessConfig, ProcessOps, Processor
 
 
-PanelSize = tuple[int, int]
-
-
 def query(url: str) -> BaseComic:
     """
     Attempt to query for a comic given a URL.
@@ -231,42 +228,10 @@ def process(
         pass
 
 
-def _find_images_by_stem(folder: Path, filestems: list[str]) -> list[Path]:
-    images_by_stem = {file.stem: file for file in folder.iterdir() if file.is_file()}
-    return [images_by_stem[stem] for stem in filestems if stem in images_by_stem]
-
-
-def _resize_images_to_panel_size(image_paths: list[Path], panel_size: PanelSize) -> None:
-    try:
-        from PIL import Image, ImageOps
-    except ImportError as err:
-        raise ImportError(
-            "Pillow was not found and is needed for panel_size resizing. Is it installed?"
-        ) from err
-
-    height, width = panel_size
-    if height <= 0 or width <= 0:
-        raise ValueError("panel_size must be a tuple of positive integers: (height, width)")
-
-    target_size = (width, height)
-    for image_path in image_paths:
-        with Image.open(image_path) as image:
-            if image.size == target_size:
-                continue
-
-            resized = ImageOps.fit(
-                image,
-                target_size,
-                method=Image.Resampling.LANCZOS,
-                centering=(0.5, 0.5),
-            )
-            if image_path.suffix.lower() in {".jpg", ".jpeg"} and resized.mode in {
-                "RGBA",
-                "LA",
-                "P",
-            }:
-                resized = resized.convert("RGB")
-            resized.save(image_path)
+def _use_chapter_number_range(comic: BaseComic) -> bool:
+    return comic.source.name == "MangaDex" and any(
+        chapter.chapter_number for chapter in comic.chapters
+    )
 
 
 def download_progress(
@@ -278,7 +243,7 @@ def download_progress(
     threads: int = 4,
     only_download_missing: bool = True,
     raise_on_failed_download: bool = True,
-    panel_size: PanelSize | None = None,
+    panel_size: io.PanelSize | None = None,
     main_progress: Progress = None,
     chapter_progress: Progress = None,
     progress_callback: Callable[[], None] | None = None
@@ -288,8 +253,10 @@ def download_progress(
 
     :param `comic`: A comic or URL to download
     :param `path`: A folder to download the comic to
-    :param `start`: The first chapter to download (zero-indexed, inclusive)
-    :param `end`: The last chapter to download (zero-indexed, exclusive)
+    :param `start`: The first chapter to download (zero-indexed, inclusive).
+    For MangaDex, this is the real chapter number instead.
+    :param `end`: The last chapter to download (zero-indexed, exclusive).
+    For MangaDex, this is the real chapter number and is inclusive.
     :param `threads`: The number of threads to use
     :param `only_download_missing`: If `True`, do not download
     images already in the destination path
@@ -304,11 +271,16 @@ def download_progress(
     if isinstance(comic, str):
         comic = query(comic)
 
+    comic.set_chapter_range(
+        start=start,
+        end=end,
+        by_chapter_number=_use_chapter_number_range(comic),
+    )
+
     full_path = path / comic.metadata.title_slug
     full_path.mkdir(exist_ok=True)
 
     # save metadata json
-    comic.set_chapter_range(start=start, end=end)
     io.save_comic(comic, full_path)
 
     # cover
@@ -330,7 +302,11 @@ def download_progress(
         if main_progress is not None:
             main_progress.total = len(comic.chapters)
             main_progress.current = i
-            main_progress.progress = round((100 / main_progress.total * main_progress.current), 1) if main_progress.total else 0
+            main_progress.progress = (
+                round((100 / main_progress.total * main_progress.current), 1)
+                if main_progress.total
+                else 0
+            )
             if progress_callback is not None:
                 progress_callback()
         # expect that they're named by numbers only
@@ -348,13 +324,7 @@ def download_progress(
             # move to next chapter if there's nothing to download for this one
             continue
 
-        all_filestems = [
-            str(i).rjust(io.NUM_LEFT_PAD_DIGITS, "0") for i in range(1, len(image_urls) + 1)
-        ]
         if len(skip_images) == len(image_urls):
-            if panel_size is not None:
-                images = _find_images_by_stem(chapter_path, all_filestems)
-                _resize_images_to_panel_size(images, panel_size)
             continue
 
         # name them 00001.png, 00002.png, etc
@@ -387,15 +357,17 @@ def download_progress(
             headers=comic.source.headers,
             filestems=filestems,
             threads=threads,
+            panel_size=panel_size,
         ):
             if chapter_progress is not None:
                 chapter_progress.current += 1
-                chapter_progress.progress = round(((100 / chapter_progress.total) * chapter_progress.current), 1) if chapter_progress.total else 0
+                chapter_progress.progress = (
+                    round(((100 / chapter_progress.total) * chapter_progress.current), 1)
+                    if chapter_progress.total
+                    else 0
+                )
                 if progress_callback is not None:
                     progress_callback()
-        if panel_size is not None:
-            images = _find_images_by_stem(chapter_path, all_filestems)
-            _resize_images_to_panel_size(images, panel_size)
         if chapter_progress is not None:
             chapter_progress.current = 0
             chapter_progress.progress = 0
@@ -425,7 +397,7 @@ def download(
     threads: int = 4,
     only_download_missing: bool = True,
     raise_on_failed_download: bool = True,
-    panel_size: PanelSize = (1280, 800),
+    panel_size: io.PanelSize = (1280, 800),
     progress_callback: Callable[[Progress, Progress], None] | None = None
     ):
     """
@@ -446,7 +418,8 @@ def download(
     state directly from the `main_progress` and `chapter_progress` objects
     returned by `download()`.
 
-    Main_progress and Chapter_progress are instances of the mandown.base.Progress class. They contain: 
+    Main_progress and Chapter_progress are instances of the mandown.base.Progress class.
+    They contain:
     progress: progress as a percentage
     total: total number of segments
     current: the last processed segment

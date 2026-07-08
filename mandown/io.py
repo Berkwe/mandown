@@ -17,7 +17,46 @@ NUM_LEFT_PAD_DIGITS = 5
 FILE_PADDING = f"0{NUM_LEFT_PAD_DIGITS}"
 MD_METADATA_FILE = "md-metadata.json"
 
-AsyncDownloadImageInput = tuple[str, Path | str, str | None, dict[str, str] | None]
+PanelSize = tuple[int, int]
+AsyncDownloadImageInput = tuple[
+    str,
+    Path | str,
+    str | None,
+    dict[str, str] | None,
+    PanelSize | None,
+]
+
+
+def resize_image_to_panel_size(image_path: Path, panel_size: PanelSize) -> None:
+    try:
+        from PIL import Image, ImageOps
+    except ImportError as err:
+        raise ImportError(
+            "Pillow was not found and is needed for panel_size resizing. Is it installed?"
+        ) from err
+
+    height, width = panel_size
+    if height <= 0 or width <= 0:
+        raise ValueError("panel_size must be a tuple of positive integers: (height, width)")
+
+    target_size = (width, height)
+    with Image.open(image_path) as image:
+        if image.size == target_size:
+            return
+
+        resized = ImageOps.fit(
+            image,
+            target_size,
+            method=Image.Resampling.LANCZOS,
+            centering=(0.5, 0.5),
+        )
+        if image_path.suffix.lower() in {".jpg", ".jpeg"} and resized.mode in {
+            "RGBA",
+            "LA",
+            "P",
+        }:
+            resized = resized.convert("RGB")
+        resized.save(image_path)
 
 
 def async_download_image(data: AsyncDownloadImageInput) -> None:
@@ -26,7 +65,7 @@ def async_download_image(data: AsyncDownloadImageInput) -> None:
 
     :param `data`: A tuple of the url, destination folder, filename, and headers.
     """
-    url, dest_folder, filename, headers = data
+    url, dest_folder, filename, headers, panel_size = data
     dest_folder = Path(dest_folder)
 
     name = filename or url.split("/")[-1]
@@ -48,7 +87,12 @@ def async_download_image(data: AsyncDownloadImageInput) -> None:
     # rename it so epubcheck doesn't yell at us
     ext = filetype.guess(dest_file)
     if ext is not None and ext.extension in ["jpg", "png", "gif"]:
-        dest_file.rename(dest_file.with_suffix(f".{ext.extension}"))
+        renamed_file = dest_file.with_suffix(f".{ext.extension}")
+        dest_file.rename(renamed_file)
+        dest_file = renamed_file
+
+    if panel_size is not None:
+        resize_image_to_panel_size(dest_file, panel_size)
 
 
 def download_images(
@@ -58,6 +102,7 @@ def download_images(
     filestems: Sequence[str] | None = None,
     headers: dict[str, str] | None = None,
     threads: int = 1,
+    panel_size: PanelSize | None = None,
 ) -> Iterator[None]:
     """
     Download one or multiple URLs to a destination folder.
@@ -68,6 +113,8 @@ def download_images(
     :param `filestems`: Specify the name of each downloaded file instead of the default.
     :param `headers`: Request headers
     :param `threads`: The number of processes to open
+    :param `panel_size`: If provided as `(height, width)`, resize each image to
+    fill that exact size and crop the overflow before the download job completes.
     :returns An Iterator that yields `None` for each downloaded file.
     """
     dest_folder = Path(dest_folder)
@@ -83,7 +130,7 @@ def download_images(
 
     for url, stem in zip(urls, filestems, strict=True):
         _, ext = os.path.splitext(urllib.parse.urlparse(url).path)
-        map_pool.append((url, dest_folder, f"{stem}{ext}", headers))
+        map_pool.append((url, dest_folder, f"{stem}{ext}", headers, panel_size))
 
     with mp.Pool(threads) as pool:
         yield from pool.imap_unordered(async_download_image, map_pool)

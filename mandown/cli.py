@@ -420,21 +420,28 @@ def get(
         f'Found comic "{comic.metadata.title}" from source {sources.get_class_for(url).name}',
     )
 
-    # get processing range
-    start_chapter = start or 1
-    end_chapter = end or len(comic.chapters)
+    try:
+        if api._use_chapter_number_range(comic):
+            comic.set_chapter_range(start=start, end=end, by_chapter_number=True)
+        else:
+            # get processing range
+            start_chapter = start or 1
+            end_chapter = end or len(comic.chapters)
 
-    # zero-index
-    start_chapter -= 1
-
-    comic.set_chapter_range(start=start_chapter, end=end_chapter)
+            # zero-index
+            start_chapter -= 1
+            comic.set_chapter_range(start=start_chapter, end=end_chapter)
+    except ValueError as err:
+        typer.secho(f"Could not select chapters: {err}", fg=typer.colors.RED)
+        raise typer.Exit(1) from err
 
     # download
-    typer.echo(f"Downloading {end_chapter - start_chapter} chapter(s)...")
+    chapter_count = len(comic.chapters)
+    typer.echo(f"Downloading {chapter_count} chapter(s)...")
     try:
         with typer.progressbar(
             api.download_progress(comic, dest, threads=maxthreads),
-            length=len(comic.chapters),
+            length=chapter_count,
         ) as progress:
             for title in progress:
                 progress.label = title
@@ -448,7 +455,7 @@ def get(
 
     full_dest_folder = dest.absolute() / comic.metadata.title_slug
     typer.secho(
-        f"Successfully downloaded {end_chapter - start_chapter} chapter(s) to {full_dest_folder}.",
+        f"Successfully downloaded {chapter_count} chapter(s) to {full_dest_folder}.",
         fg=typer.colors.GREEN,
     )
 
