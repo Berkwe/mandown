@@ -1,6 +1,6 @@
 import mandown, time, os
 
-url = "https://mangadex.org/title/5b356a49-627a-498f-9b67-78eae9d8c3d9/mahouka-koukou-no-rettousei-yotsuba-keishou-hen-movie-promotion"
+url = "https://mangadex.org/title/e9c6ba84-e78a-4fa5-99f8-087ab6d31a7d/musa-mallihaeng"
 
 comic = mandown.query(url)
 

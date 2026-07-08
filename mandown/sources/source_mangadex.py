@@ -4,13 +4,16 @@ Source file for mangadex.org
 # pylint: disable=invalid-name
 
 import re
+import subprocess
 import time
 
 import requests
 from bs4 import BeautifulSoup
+from natsort import natsorted
 from slugify import slugify
 
 from ..base import BaseChapter, BaseMetadata
+from ..request_utils import USER_AGENT
 from .common_source import CommonSource
 
 
@@ -90,15 +93,27 @@ class MangaDexSource(CommonSource):
         )
 
     def _fetch_chapter_list(self) -> list[BaseChapter]:
-        # for some reason *sometimes* it goes all name/service not found
-        r = self._get(
-            f"https://api.mangadex.org/manga/{self.id}/"
-            f"feed?limit=500&translatedLanguage[]={self.lang_code}"
-            "&order[volume]=asc&order[chapter]=asc"
-        ).json()
+        preferred_chapters = self._fetch_chapter_feed(self.lang_code)
+        chapters_by_number = {self._chapter_number_key(c): c for c in preferred_chapters}
+
+        # MangaDex's title page shows the aggregate chapter list. If the preferred
+        # language has gaps, fill those chapter numbers from the full feed.
+        aggregate_count = self._fetch_aggregate_chapter_count()
+        if aggregate_count > len(chapters_by_number):
+            for c in self._fetch_chapter_feed():
+                chapters_by_number.setdefault(self._chapter_number_key(c), c)
+
+        chapter_data = natsorted(
+            chapters_by_number.values(),
+            key=lambda c: (
+                c["attributes"].get("volume") or "",
+                c["attributes"].get("chapter") or "",
+                c["id"],
+            ),
+        )
 
         chapters: list[BaseChapter] = []
-        for i, c in enumerate(r["data"]):
+        for i, c in enumerate(chapter_data):
             chapter_title: str = c["attributes"]["title"] or f"Chapter {c['attributes']['chapter']}"
             chapter_slug: str = f"{i}-{slugify(chapter_title).strip()}"
             chapters.append(
@@ -109,6 +124,36 @@ class MangaDexSource(CommonSource):
                 )
             )
         return chapters
+
+    def _fetch_chapter_feed(self, lang_code: str | None = None) -> list[dict]:
+        chapters: list[dict] = []
+        offset = 0
+        limit = 500
+        while True:
+            lang_param = f"&translatedLanguage[]={lang_code}" if lang_code else ""
+            r = self._get(
+                f"https://api.mangadex.org/manga/{self.id}/"
+                f"feed?limit={limit}&offset={offset}{lang_param}"
+                "&order[volume]=asc&order[chapter]=asc"
+            ).json()
+            chapters.extend(r["data"])
+
+            offset += len(r["data"])
+            if offset >= r["total"] or not r["data"]:
+                break
+        return chapters
+
+    def _fetch_aggregate_chapter_count(self) -> int:
+        r = self._get(f"https://api.mangadex.org/manga/{self.id}/aggregate").json()
+        return sum(len(v.get("chapters", {})) for v in r.get("volumes", {}).values())
+
+    @staticmethod
+    def _chapter_number_key(chapter: dict) -> tuple[str, str, str]:
+        attributes = chapter["attributes"]
+        chapter_number = attributes.get("chapter")
+        if chapter_number is None:
+            return ("", "", chapter["id"])
+        return (attributes.get("volume") or "", chapter_number, "")
 
     def _fetch_chapter_image_list(self, chapter: BaseChapter) -> list[str]:
         *_, chapter_id = chapter.url.split("/")
@@ -135,7 +180,9 @@ class MangaDexSource(CommonSource):
         rudimentary rate-limit processing
         """
         for _ in range(3):
-            r = requests.get(url, timeout=5)
+            r = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=5)
+            if r.status_code == 400 and "Unsupported Browser" in r.text:
+                r = MangaDexSource._get_with_curl(url)
             if r.status_code == 200:
                 break
             elif r.status_code == 404:
@@ -147,6 +194,42 @@ class MangaDexSource(CommonSource):
         else:
             raise RuntimeError("MangaDex is probably rate-limiting us, try again later?")
         return r
+
+    @staticmethod
+    def _get_with_curl(url: str) -> requests.Response:
+        """
+        MangaDex currently rejects Python requests' TLS/browser fingerprint in
+        some regions. curl gets the same public response as a regular browser.
+        """
+        completed = subprocess.run(
+            [
+                "curl",
+                "-sS",
+                "-L",
+                "--globoff",
+                "--max-time",
+                "20",
+                "-w",
+                "\n%{http_code}",
+                url,
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        response = requests.Response()
+        response.url = url
+        response.encoding = "utf-8"
+
+        if completed.returncode != 0:
+            response.status_code = 0
+            response._content = completed.stderr.encode()  # pylint: disable=protected-access
+            return response
+
+        body, _, status_code = completed.stdout.rpartition("\n")
+        response.status_code = int(status_code)
+        response._content = body.encode()  # pylint: disable=protected-access
+        return response
 
 
 def get_class() -> type[CommonSource]:
