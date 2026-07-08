@@ -13,5 +13,5 @@ def process(main_progress, chapter_progress):
     print(f"Ana ilerleme : {main_progress.progress}")
     print(f"Bölüm ilerlemesi : {chapter_progress.progress}")
 if __name__ == '__main__':
-    main_progress, chapter_progress, thread = mandown.download(comic, threads=4, only_download_missing=True, progress_callback=process)
+    main_progress, chapter_progress, thread = mandown.download(comic, threads=4, only_download_missing=True, progress_callback=process, panel_size=(1200, 800))
 

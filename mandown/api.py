@@ -1,16 +1,21 @@
 # pylint: disable=invalid-name
 
-import shutil, threading, comicon
-
-from typing import Callable
 from pathlib import Path
-from typing import Iterator
-from .base import Progress
+import shutil
+import threading
+from typing import Callable, Iterator
+
+import comicon
+
 from . import io, sources
+from .base import Progress
 from .comic import BaseComic
 from .convert_utils import ConvertFormats, convert_one
 from .errors import ChapterImageCountMismatchError, ImageDownloadError
 from .processor import ProcessConfig, ProcessOps, Processor
+
+
+PanelSize = tuple[int, int]
 
 
 def query(url: str) -> BaseComic:
@@ -226,6 +231,44 @@ def process(
         pass
 
 
+def _find_images_by_stem(folder: Path, filestems: list[str]) -> list[Path]:
+    images_by_stem = {file.stem: file for file in folder.iterdir() if file.is_file()}
+    return [images_by_stem[stem] for stem in filestems if stem in images_by_stem]
+
+
+def _resize_images_to_panel_size(image_paths: list[Path], panel_size: PanelSize) -> None:
+    try:
+        from PIL import Image, ImageOps
+    except ImportError as err:
+        raise ImportError(
+            "Pillow was not found and is needed for panel_size resizing. Is it installed?"
+        ) from err
+
+    height, width = panel_size
+    if height <= 0 or width <= 0:
+        raise ValueError("panel_size must be a tuple of positive integers: (height, width)")
+
+    target_size = (width, height)
+    for image_path in image_paths:
+        with Image.open(image_path) as image:
+            if image.size == target_size:
+                continue
+
+            resized = ImageOps.fit(
+                image,
+                target_size,
+                method=Image.Resampling.LANCZOS,
+                centering=(0.5, 0.5),
+            )
+            if image_path.suffix.lower() in {".jpg", ".jpeg"} and resized.mode in {
+                "RGBA",
+                "LA",
+                "P",
+            }:
+                resized = resized.convert("RGB")
+            resized.save(image_path)
+
+
 def download_progress(
     comic: BaseComic | str,
     path: Path | str = ".",
@@ -235,6 +278,7 @@ def download_progress(
     threads: int = 4,
     only_download_missing: bool = True,
     raise_on_failed_download: bool = True,
+    panel_size: PanelSize | None = None,
     main_progress: Progress = None,
     chapter_progress: Progress = None,
     progress_callback: Callable[[], None] | None = None
@@ -249,6 +293,8 @@ def download_progress(
     :param `threads`: The number of threads to use
     :param `only_download_missing`: If `True`, do not download
     images already in the destination path
+    :param `panel_size`: If provided as `(height, width)`, resize each downloaded
+    image to fill that exact size and crop the overflow from the center
 
     :returns An `Iterator` representing a progress bar up to the number of chapters in the comic.
     """
@@ -298,8 +344,17 @@ def download_progress(
                         # expected if not an image file
                         pass
 
-        if not image_urls or len(skip_images) == len(image_urls):
+        if not image_urls:
             # move to next chapter if there's nothing to download for this one
+            continue
+
+        all_filestems = [
+            str(i).rjust(io.NUM_LEFT_PAD_DIGITS, "0") for i in range(1, len(image_urls) + 1)
+        ]
+        if len(skip_images) == len(image_urls):
+            if panel_size is not None:
+                images = _find_images_by_stem(chapter_path, all_filestems)
+                _resize_images_to_panel_size(images, panel_size)
             continue
 
         # name them 00001.png, 00002.png, etc
@@ -338,6 +393,9 @@ def download_progress(
                 chapter_progress.progress = round(((100 / chapter_progress.total) * chapter_progress.current), 1) if chapter_progress.total else 0
                 if progress_callback is not None:
                     progress_callback()
+        if panel_size is not None:
+            images = _find_images_by_stem(chapter_path, all_filestems)
+            _resize_images_to_panel_size(images, panel_size)
         if chapter_progress is not None:
             chapter_progress.current = 0
             chapter_progress.progress = 0
@@ -367,6 +425,7 @@ def download(
     threads: int = 4,
     only_download_missing: bool = True,
     raise_on_failed_download: bool = True,
+    panel_size: PanelSize = (1280, 800),
     progress_callback: Callable[[Progress, Progress], None] | None = None
     ):
     """
@@ -379,6 +438,8 @@ def download(
     :param `threads`: The number of threads to use
     :param `only_download_missing`: If `True`, do not download images
     already in the destination path
+    :param `panel_size`: If provided as `(height, width)`, resize each downloaded
+    image to fill that exact size and crop the overflow from the center
 
     :param `progress_callback`: Optional callback invoked every time `main_progress`
     or `chapter_progress` changes. It receives no arguments — read the updated
@@ -413,6 +474,7 @@ def download(
             start=start, end=end, threads=threads,
             only_download_missing=only_download_missing,
             raise_on_failed_download=raise_on_failed_download,
+            panel_size=panel_size,
             main_progress=main_progress,
             chapter_progress=chapter_progress,
             progress_callback=_wrapped_callback
