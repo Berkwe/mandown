@@ -1,8 +1,7 @@
 import mandown, time, os
 
 url = (
-    "https://manhwaz.com/home/manhwaz.com/public_html/public/index.php/webtoon/"
-    "the-long-way-of-the-warrior-004"
+    "https://m.comic.naver.com/webtoon/list?titleId=746857&week=thu&sortOrder=ASC"
 )
 
 comic = mandown.query(url)
@@ -19,8 +18,8 @@ if __name__ == '__main__':
         comic = mandown.query(url)
         main_progress, chapter_progress, thread = mandown.download(
             comic,
-            start=117,
-            end=117,
+            start=200,
+            end=201,
             threads=4,
             only_download_missing=False,
             progress_callback=process,
