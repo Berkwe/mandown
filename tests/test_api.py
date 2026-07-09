@@ -65,6 +65,35 @@ def test_split_image_to_panel_size_keeps_all_vertical_content(tmp_path: Path) ->
             assert image.size == (800, 1200)
 
 
+def test_split_images_to_panel_size_carries_remainder_between_images(tmp_path: Path) -> None:
+    first_image = tmp_path / "first.jpg"
+    second_image = tmp_path / "second.jpg"
+    dest_path = tmp_path / "panels"
+    dest_path.mkdir()
+    Image.new("RGB", (800, 700), "red").save(first_image)
+    Image.new("RGB", (800, 700), "blue").save(second_image)
+
+    next_index = io.split_images_to_panel_size(
+        [first_image, second_image],
+        dest_path,
+        start_index=1,
+        panel_size=(1200, 800),
+    )
+
+    panels = sorted(dest_path.iterdir())
+    assert next_index == 3
+    assert [panel.name for panel in panels] == ["00001.jpg", "00002.jpg"]
+
+    with Image.open(panels[0]) as image:
+        assert image.size == (800, 1200)
+        assert image.getpixel((10, 10)) == (254, 0, 0)
+        assert image.getpixel((10, 1190)) == (0, 0, 254)
+
+    with Image.open(panels[1]) as image:
+        assert image.size == (800, 1200)
+        assert image.getpixel((10, 10)) == (0, 0, 254)
+
+
 def test_async_download_image_resizes_before_download_job_finishes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -77,10 +106,30 @@ def test_async_download_image_resizes_before_download_job_finishes(
     monkeypatch.setattr(io.RealRequests, "get", fake_get)
 
     io.async_download_image(
-        ("https://example.com/panel.jpg", tmp_path, "00001.jpg", None, (120, 80))
+        ("https://example.com/panel.jpg", tmp_path, "00001.jpg", None, (120, 80), None)
     )
 
     with Image.open(tmp_path / "00001.jpg") as image:
+        assert image.size == (80, 120)
+
+
+def test_async_download_image_converts_webp_to_jpg(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source_image = tmp_path / "source.webp"
+    Image.new("RGB", (80, 120), "red").save(source_image)
+
+    def fake_get(url: str, headers: dict[str, str] | None, timeout: int) -> SimpleNamespace:
+        return SimpleNamespace(status_code=200, content=source_image.read_bytes())
+
+    monkeypatch.setattr(io.RealRequests, "get", fake_get)
+
+    io.async_download_image(
+        ("https://example.com/panel.webp", tmp_path, "00001.jpg", None, None, "jpg")
+    )
+
+    with Image.open(tmp_path / "00001.jpg") as image:
+        assert image.format == "JPEG"
         assert image.size == (80, 120)
 
 

@@ -26,7 +26,9 @@ AsyncDownloadImageInput = tuple[
     str | None,
     dict[str, str] | None,
     PanelSize | None,
+    str | None,
 ]
+MAX_DOWNLOAD_ATTEMPTS = 3
 
 
 def resize_image_to_panel_size(image_path: Path, panel_size: PanelSize) -> None:
@@ -67,6 +69,7 @@ def split_image_to_panel_size(
     *,
     start_index: int,
     panel_size: PanelSize,
+    image_format: str | None = None,
 ) -> int:
     try:
         from PIL import Image, ImageOps
@@ -87,7 +90,7 @@ def split_image_to_panel_size(
         else:
             image = image.copy()
 
-        suffix = image_path.suffix.lower() or ".jpg"
+        suffix = _image_suffix(image_format) or image_path.suffix.lower() or ".jpg"
         index = start_index
         for top in range(0, image.height, height):
             panel = image.crop((0, top, width, min(top + height, image.height)))
@@ -96,11 +99,160 @@ def split_image_to_panel_size(
                 padded.paste(panel, (0, 0))
                 panel = padded
 
-            if suffix in {".jpg", ".jpeg"} and panel.mode in {"RGBA", "LA", "P"}:
-                panel = panel.convert("RGB")
-            panel.save(dest_folder / f"{index:{FILE_PADDING}}{suffix}")
+            _save_panel(
+                panel,
+                dest_folder / f"{index:{FILE_PADDING}}{suffix}",
+                image_format=image_format,
+            )
             index += 1
         return index
+
+
+def split_images_to_panel_size(
+    image_paths: Sequence[Path],
+    dest_folder: Path,
+    *,
+    start_index: int,
+    panel_size: PanelSize,
+    image_format: str | None = None,
+) -> int:
+    try:
+        from PIL import Image, ImageOps
+    except ImportError as err:
+        raise ImportError(
+            "Pillow was not found and is needed for panel_size splitting. Is it installed?"
+        ) from err
+
+    height, width = panel_size
+    if height <= 0 or width <= 0:
+        raise ValueError("panel_size must be a tuple of positive integers: (height, width)")
+
+    index = start_index
+    pending = None
+    suffix = _image_suffix(image_format) or ".jpg"
+
+    for image_path in image_paths:
+        if image_format is None:
+            suffix = image_path.suffix.lower() or suffix
+        with Image.open(image_path) as image:
+            image = ImageOps.exif_transpose(image)
+            if image.width != width:
+                resized_height = max(1, round(image.height * (width / image.width)))
+                image = image.resize((width, resized_height), Image.Resampling.LANCZOS)
+            else:
+                image = image.copy()
+
+        if pending is not None:
+            needed = height - pending.height
+            top_slice = image.crop((0, 0, width, min(needed, image.height)))
+            pending = _stack_images(pending, top_slice)
+            image = image.crop((0, top_slice.height, width, image.height))
+            if pending.height == height:
+                _save_panel(
+                    pending,
+                    dest_folder / f"{index:{FILE_PADDING}}{suffix}",
+                    image_format=image_format,
+                )
+                index += 1
+                pending = None
+
+        for top in range(0, image.height - (image.height % height), height):
+            panel = image.crop((0, top, width, top + height))
+            _save_panel(
+                panel,
+                dest_folder / f"{index:{FILE_PADDING}}{suffix}",
+                image_format=image_format,
+            )
+            index += 1
+
+        remainder_height = image.height % height
+        if remainder_height:
+            pending = image.crop((0, image.height - remainder_height, width, image.height))
+
+    if pending is not None:
+        padded = _pad_panel(pending, width, height)
+        _save_panel(
+            padded,
+            dest_folder / f"{index:{FILE_PADDING}}{suffix}",
+            image_format=image_format,
+        )
+        index += 1
+
+    return index
+
+
+def _stack_images(top_image, bottom_image):
+    from PIL import Image
+
+    stacked = Image.new(
+        top_image.mode,
+        (top_image.width, top_image.height + bottom_image.height),
+        _image_background(top_image.mode),
+    )
+    stacked.paste(top_image, (0, 0))
+    stacked.paste(bottom_image, (0, top_image.height))
+    return stacked
+
+
+def _pad_panel(panel, width: int, height: int):
+    from PIL import Image
+
+    if panel.height == height:
+        return panel
+    padded = Image.new(panel.mode, (width, height), _image_background(panel.mode))
+    padded.paste(panel, (0, 0))
+    return padded
+
+
+def _save_panel(panel, path: Path, *, image_format: str | None = None) -> None:
+    image_format = normalize_image_format(image_format)
+    if image_format is not None:
+        panel = _prepare_image_for_format(panel, image_format)
+        panel.save(path, format=_pil_format(image_format))
+        return
+
+    if path.suffix.lower() in {".jpg", ".jpeg"} and panel.mode in {"RGBA", "LA", "P"}:
+        panel = _prepare_image_for_format(panel, "jpg")
+    panel.save(path)
+
+
+def normalize_image_format(image_format: str | None) -> str | None:
+    if image_format is None:
+        return None
+
+    normalized = image_format.lower().lstrip(".")
+    if normalized == "jpeg":
+        normalized = "jpg"
+    if normalized not in {"jpg", "png"}:
+        raise ValueError("image_format must be one of: jpg, jpeg, png")
+    return normalized
+
+
+def _image_suffix(image_format: str | None) -> str | None:
+    normalized = normalize_image_format(image_format)
+    return f".{normalized}" if normalized else None
+
+
+def _pil_format(image_format: str) -> str | None:
+    normalized = normalize_image_format(image_format)
+    if normalized == "jpg":
+        return "JPEG"
+    if normalized == "png":
+        return "PNG"
+    return None
+
+
+def _prepare_image_for_format(image, image_format: str):
+    normalized = normalize_image_format(image_format)
+    if normalized != "jpg" or image.mode not in {"RGBA", "LA", "P"}:
+        return image
+
+    from PIL import Image
+
+    rgba = image.convert("RGBA")
+    background = Image.new("RGBA", rgba.size, (255, 255, 255, 255))
+    background.alpha_composite(rgba)
+    return background.convert("RGB")
 
 
 def _image_background(mode: str) -> int | tuple[int, ...]:
@@ -119,34 +271,91 @@ def async_download_image(data: AsyncDownloadImageInput) -> None:
 
     :param `data`: A tuple of the url, destination folder, filename, and headers.
     """
-    url, dest_folder, filename, headers, panel_size = data
+    url, dest_folder, filename, headers, panel_size, image_format = data
     dest_folder = Path(dest_folder)
+    image_format = normalize_image_format(image_format)
 
     name = filename or url.split("/")[-1]
     dest_file = dest_folder / name
 
-    times = 0
-    while (res := RealRequests.get(url, headers=headers, timeout=5)).status_code == 429:
-        # there is no clean way to raise an error in a pool
-        # so we just return early and check it later
-        times += 1
-        sleep(1)
-        if times >= 3:
-            return
+    part_file = dest_file.with_name(f"{dest_file.name}.part")
+    last_error = ""
+    for attempt in range(MAX_DOWNLOAD_ATTEMPTS):
+        res = RealRequests.get(url, headers=headers, timeout=20)
+        if res.status_code == 429:
+            sleep(attempt + 1)
+            continue
+        if res.status_code >= 400:
+            last_error = f"HTTP {res.status_code}"
+            sleep(attempt + 1)
+            continue
 
-    with open(dest_file, "wb") as file:
-        file.write(res.content)
+        with open(part_file, "wb") as file:
+            file.write(res.content)
+
+        try:
+            _verify_image_file(part_file)
+        except OSError as err:
+            last_error = str(err)
+            part_file.unlink(missing_ok=True)
+            sleep(attempt + 1)
+            continue
+
+        part_file.replace(dest_file)
+        break
+    else:
+        raise OSError(f"Failed to download image {url}: {last_error}")
 
     # if the file extension is lying
     # rename it so epubcheck doesn't yell at us
-    ext = filetype.guess(dest_file)
-    if ext is not None and ext.extension in ["jpg", "png", "gif"]:
-        renamed_file = dest_file.with_suffix(f".{ext.extension}")
-        dest_file.rename(renamed_file)
-        dest_file = renamed_file
+    if image_format is not None:
+        converted_file = convert_image_file(dest_file, image_format)
+        if converted_file != dest_file:
+            dest_file.unlink(missing_ok=True)
+            dest_file = converted_file
+    else:
+        ext = filetype.guess(dest_file)
+        if ext is not None:
+            renamed_file = dest_file.with_suffix(f".{ext.extension}")
+            dest_file.rename(renamed_file)
+            dest_file = renamed_file
 
     if panel_size is not None:
         resize_image_to_panel_size(dest_file, panel_size)
+
+
+def convert_image_file(image_path: Path, image_format: str) -> Path:
+    try:
+        from PIL import Image, ImageOps
+    except ImportError as err:
+        raise ImportError(
+            "Pillow was not found and is needed for image format conversion."
+        ) from err
+
+    image_format = normalize_image_format(image_format)
+    converted_file = image_path.with_suffix(f".{image_format}")
+    temp_file = converted_file.with_name(f"{converted_file.name}.part")
+
+    with Image.open(image_path) as image:
+        image = ImageOps.exif_transpose(image)
+        image = _prepare_image_for_format(image, image_format)
+        image.save(temp_file, format=_pil_format(image_format))
+
+    temp_file.replace(converted_file)
+    return converted_file
+
+
+def _verify_image_file(path: Path) -> None:
+    try:
+        from PIL import Image
+    except ImportError as err:
+        raise ImportError("Pillow was not found and is needed for image validation.") from err
+
+    if filetype.guess(path) is None:
+        raise OSError("downloaded file is not a recognized image")
+
+    with Image.open(path) as image:
+        image.verify()
 
 
 def download_images(
@@ -157,6 +366,7 @@ def download_images(
     headers: dict[str, str] | None = None,
     threads: int = 1,
     panel_size: PanelSize | None = None,
+    image_format: str | None = None,
 ) -> Iterator[None]:
     """
     Download one or multiple URLs to a destination folder.
@@ -169,6 +379,8 @@ def download_images(
     :param `threads`: The number of processes to open
     :param `panel_size`: If provided as `(height, width)`, resize each image to
     fill that exact size and crop the overflow before the download job completes.
+    :param `image_format`: If provided as `jpg` or `png`, convert downloaded images
+    to that format.
     :returns An Iterator that yields `None` for each downloaded file.
     """
     dest_folder = Path(dest_folder)
@@ -178,13 +390,17 @@ def download_images(
 
     # args to async_download
     map_pool: list[AsyncDownloadImageInput] = []
+    image_format = normalize_image_format(image_format)
 
     if filestems is None:
-        filestems = [f"{i + 1:FILE_PADDING}" for i in range(len(urls))]
+        filestems = [f"{i + 1:{FILE_PADDING}}" for i in range(len(urls))]
 
     for url, stem in zip(urls, filestems, strict=True):
-        _, ext = os.path.splitext(urllib.parse.urlparse(url).path)
-        map_pool.append((url, dest_folder, f"{stem}{ext}", headers, panel_size))
+        if image_format is not None:
+            ext = f".{image_format}"
+        else:
+            _, ext = os.path.splitext(urllib.parse.urlparse(url).path)
+        map_pool.append((url, dest_folder, f"{stem}{ext}", headers, panel_size, image_format))
 
     with mp.Pool(threads) as pool:
         yield from pool.imap_unordered(async_download_image, map_pool)
@@ -197,6 +413,7 @@ def download_images_as_panels(
     headers: dict[str, str] | None = None,
     threads: int = 1,
     panel_size: PanelSize,
+    image_format: str | None = None,
 ) -> Iterator[None]:
     """
     Download images and split each image vertically into fixed-size panels.
@@ -206,6 +423,7 @@ def download_images_as_panels(
     """
     dest_folder = Path(dest_folder)
     dest_folder.mkdir(exist_ok=True)
+    image_format = normalize_image_format(image_format)
 
     with tempfile.TemporaryDirectory(dir=dest_folder, prefix=".mandown-panels-") as temp_dir:
         temp_path = Path(temp_dir)
@@ -218,19 +436,23 @@ def download_images_as_panels(
             headers=headers,
             threads=threads,
             panel_size=None,
+            image_format=None,
         )
 
-        next_index = 1
+        source_files: list[Path] = []
         for stem in temp_stems:
             source_file = next(iter(sorted(temp_path.glob(f"{stem}.*"))), None)
             if source_file is None:
                 continue
-            next_index = split_image_to_panel_size(
-                source_file,
-                dest_folder,
-                start_index=next_index,
-                panel_size=panel_size,
-            )
+            source_files.append(source_file)
+
+        split_images_to_panel_size(
+            source_files,
+            dest_folder,
+            start_index=1,
+            panel_size=panel_size,
+            image_format=image_format,
+        )
 
 
 def clear_numbered_images(path: Path | str) -> None:

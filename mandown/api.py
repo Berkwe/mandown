@@ -229,9 +229,7 @@ def process(
 
 
 def _use_chapter_number_range(comic: BaseComic) -> bool:
-    return comic.source.name == "MangaDex" and any(
-        chapter.chapter_number for chapter in comic.chapters
-    )
+    return any(chapter.chapter_number for chapter in comic.chapters)
 
 
 def download_progress(
@@ -244,6 +242,7 @@ def download_progress(
     only_download_missing: bool = True,
     raise_on_failed_download: bool = True,
     panel_size: io.PanelSize | None = None,
+    image_format: str | None = None,
     main_progress: Progress = None,
     chapter_progress: Progress = None,
     progress_callback: Callable[[], None] | None = None
@@ -262,10 +261,13 @@ def download_progress(
     images already in the destination path
     :param `panel_size`: If provided as `(height, width)`, split each downloaded
     image into fixed-size panels after resizing it to the target width
+    :param `image_format`: If provided as `jpg` or `png`, convert downloaded images
+    to that format
 
     :returns An `Iterator` representing a progress bar up to the number of chapters in the comic.
     """
     path = Path(path)
+    image_format = io.normalize_image_format(image_format)
 
     # make var comic a BaseComic
     if isinstance(comic, str):
@@ -290,6 +292,7 @@ def download_progress(
             full_path,
             filestems=["cover"],
             headers=comic.source.headers,
+            image_format=image_format,
         ):
             pass
     
@@ -360,6 +363,7 @@ def download_progress(
                 headers=comic.source.headers,
                 threads=threads,
                 panel_size=panel_size,
+                image_format=image_format,
             )
             if panel_size is not None
             else io.download_images(
@@ -369,6 +373,7 @@ def download_progress(
                 filestems=filestems,
                 threads=threads,
                 panel_size=None,
+                image_format=image_format,
             )
         )
         for _ in image_downloader:
@@ -411,6 +416,7 @@ def download(
     only_download_missing: bool = True,
     raise_on_failed_download: bool = True,
     panel_size: io.PanelSize = (1280, 800),
+    image_format: str | None = None,
     progress_callback: Callable[[Progress, Progress], None] | None = None
     ):
     """
@@ -425,6 +431,8 @@ def download(
     already in the destination path
     :param `panel_size`: If provided as `(height, width)`, split each downloaded
     image into fixed-size panels after resizing it to the target width
+    :param `image_format`: If provided as `jpg` or `png`, convert downloaded images
+    to that format
 
     :param `progress_callback`: Optional callback invoked every time `main_progress`
     or `chapter_progress` changes. It receives no arguments — read the updated
@@ -461,6 +469,7 @@ def download(
             only_download_missing=only_download_missing,
             raise_on_failed_download=raise_on_failed_download,
             panel_size=panel_size,
+            image_format=image_format,
             main_progress=main_progress,
             chapter_progress=chapter_progress,
             progress_callback=_wrapped_callback

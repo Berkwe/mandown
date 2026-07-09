@@ -16,6 +16,7 @@ from . import (
     source_kuaikanmanhua,
     source_mangadex,
     source_manganato,
+    source_manhwaz,
     source_readcomiconline,
     source_thecomicseries,
     source_webtoons,
