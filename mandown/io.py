@@ -1,6 +1,8 @@
 import json
 import multiprocessing as mp
 import os
+import shutil
+import tempfile
 import urllib.parse
 from pathlib import Path
 from time import sleep
@@ -57,6 +59,58 @@ def resize_image_to_panel_size(image_path: Path, panel_size: PanelSize) -> None:
         }:
             resized = resized.convert("RGB")
         resized.save(image_path)
+
+
+def split_image_to_panel_size(
+    image_path: Path,
+    dest_folder: Path,
+    *,
+    start_index: int,
+    panel_size: PanelSize,
+) -> int:
+    try:
+        from PIL import Image, ImageOps
+    except ImportError as err:
+        raise ImportError(
+            "Pillow was not found and is needed for panel_size splitting. Is it installed?"
+        ) from err
+
+    height, width = panel_size
+    if height <= 0 or width <= 0:
+        raise ValueError("panel_size must be a tuple of positive integers: (height, width)")
+
+    with Image.open(image_path) as image:
+        image = ImageOps.exif_transpose(image)
+        if image.width != width:
+            resized_height = max(1, round(image.height * (width / image.width)))
+            image = image.resize((width, resized_height), Image.Resampling.LANCZOS)
+        else:
+            image = image.copy()
+
+        suffix = image_path.suffix.lower() or ".jpg"
+        index = start_index
+        for top in range(0, image.height, height):
+            panel = image.crop((0, top, width, min(top + height, image.height)))
+            if panel.height < height:
+                padded = Image.new(panel.mode, (width, height), _image_background(panel.mode))
+                padded.paste(panel, (0, 0))
+                panel = padded
+
+            if suffix in {".jpg", ".jpeg"} and panel.mode in {"RGBA", "LA", "P"}:
+                panel = panel.convert("RGB")
+            panel.save(dest_folder / f"{index:{FILE_PADDING}}{suffix}")
+            index += 1
+        return index
+
+
+def _image_background(mode: str) -> int | tuple[int, ...]:
+    if mode == "RGBA":
+        return (255, 255, 255, 0)
+    if mode == "LA":
+        return (255, 0)
+    if mode == "L":
+        return 255
+    return (255, 255, 255)
 
 
 def async_download_image(data: AsyncDownloadImageInput) -> None:
@@ -134,6 +188,58 @@ def download_images(
 
     with mp.Pool(threads) as pool:
         yield from pool.imap_unordered(async_download_image, map_pool)
+
+
+def download_images_as_panels(
+    urls: Sequence[str],
+    dest_folder: Path | str,
+    *,
+    headers: dict[str, str] | None = None,
+    threads: int = 1,
+    panel_size: PanelSize,
+) -> Iterator[None]:
+    """
+    Download images and split each image vertically into fixed-size panels.
+
+    `panel_size` is `(height, width)`. Each source image is resized to the
+    target width while preserving aspect ratio, then split from top to bottom.
+    """
+    dest_folder = Path(dest_folder)
+    dest_folder.mkdir(exist_ok=True)
+
+    with tempfile.TemporaryDirectory(dir=dest_folder, prefix=".mandown-panels-") as temp_dir:
+        temp_path = Path(temp_dir)
+        temp_stems = [f"source-{i + 1:{FILE_PADDING}}" for i in range(len(urls))]
+
+        yield from download_images(
+            urls,
+            temp_path,
+            filestems=temp_stems,
+            headers=headers,
+            threads=threads,
+            panel_size=None,
+        )
+
+        next_index = 1
+        for stem in temp_stems:
+            source_file = next(iter(sorted(temp_path.glob(f"{stem}.*"))), None)
+            if source_file is None:
+                continue
+            next_index = split_image_to_panel_size(
+                source_file,
+                dest_folder,
+                start_index=next_index,
+                panel_size=panel_size,
+            )
+
+
+def clear_numbered_images(path: Path | str) -> None:
+    path = Path(path)
+    for file in path.iterdir():
+        if file.is_file() and file.stem == file.stem.rjust(NUM_LEFT_PAD_DIGITS, "0"):
+            file.unlink()
+        elif file.is_dir() and file.name.startswith(".mandown-"):
+            shutil.rmtree(file)
 
 
 def read_comic(path: Path | str) -> BaseComic:

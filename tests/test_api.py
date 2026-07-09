@@ -38,6 +38,33 @@ def test_resize_images_to_panel_size_uses_height_width(tmp_path: Path) -> None:
         assert image.size == (80, 120)
 
 
+def test_split_image_to_panel_size_keeps_all_vertical_content(tmp_path: Path) -> None:
+    image_path = tmp_path / "long-page.jpg"
+    dest_path = tmp_path / "panels"
+    dest_path.mkdir()
+    Image.new("RGB", (690, 5000), "white").save(image_path)
+
+    next_index = io.split_image_to_panel_size(
+        image_path,
+        dest_path,
+        start_index=1,
+        panel_size=(1200, 800),
+    )
+
+    panels = sorted(dest_path.iterdir())
+    assert next_index == 6
+    assert [panel.name for panel in panels] == [
+        "00001.jpg",
+        "00002.jpg",
+        "00003.jpg",
+        "00004.jpg",
+        "00005.jpg",
+    ]
+    for panel in panels:
+        with Image.open(panel) as image:
+            assert image.size == (800, 1200)
+
+
 def test_async_download_image_resizes_before_download_job_finishes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

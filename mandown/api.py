@@ -260,8 +260,8 @@ def download_progress(
     :param `threads`: The number of threads to use
     :param `only_download_missing`: If `True`, do not download
     images already in the destination path
-    :param `panel_size`: If provided as `(height, width)`, resize each downloaded
-    image to fill that exact size and crop the overflow from the center
+    :param `panel_size`: If provided as `(height, width)`, split each downloaded
+    image into fixed-size panels after resizing it to the target width
 
     :returns An `Iterator` representing a progress bar up to the number of chapters in the comic.
     """
@@ -311,7 +311,9 @@ def download_progress(
                 progress_callback()
         # expect that they're named by numbers only
         skip_images: set[int] = set()
-        if only_download_missing:
+        if panel_size is not None:
+            io.clear_numbered_images(chapter_path)
+        elif only_download_missing:
             for file in chapter_path.iterdir():
                 if file.stem == file.stem.rjust(io.NUM_LEFT_PAD_DIGITS, "0"):
                     try:
@@ -351,14 +353,25 @@ def download_progress(
         chapter_path = full_path / chap.slug
         if chapter_progress is not None:
             chapter_progress.total = len(processed_image_urls)
-        for _ in io.download_images(
-            processed_image_urls,
-            chapter_path,
-            headers=comic.source.headers,
-            filestems=filestems,
-            threads=threads,
-            panel_size=panel_size,
-        ):
+        image_downloader = (
+            io.download_images_as_panels(
+                processed_image_urls,
+                chapter_path,
+                headers=comic.source.headers,
+                threads=threads,
+                panel_size=panel_size,
+            )
+            if panel_size is not None
+            else io.download_images(
+                processed_image_urls,
+                chapter_path,
+                headers=comic.source.headers,
+                filestems=filestems,
+                threads=threads,
+                panel_size=None,
+            )
+        )
+        for _ in image_downloader:
             if chapter_progress is not None:
                 chapter_progress.current += 1
                 chapter_progress.progress = (
@@ -374,9 +387,9 @@ def download_progress(
             chapter_progress.total = 0
         
         # check if every image was downloaded
-        if count := len([f for f in chapter_path.iterdir() if f.is_file()]) != len(
-            processed_image_urls
-        ):
+        expected_count = len(processed_image_urls) if panel_size is None else None
+        image_count = len([f for f in chapter_path.iterdir() if f.is_file()])
+        if expected_count is not None and (count := image_count) != expected_count:
             if raise_on_failed_download:
                 raise ImageDownloadError(
                     f"Failed to download {len(processed_image_urls) - count} images"
@@ -410,8 +423,8 @@ def download(
     :param `threads`: The number of threads to use
     :param `only_download_missing`: If `True`, do not download images
     already in the destination path
-    :param `panel_size`: If provided as `(height, width)`, resize each downloaded
-    image to fill that exact size and crop the overflow from the center
+    :param `panel_size`: If provided as `(height, width)`, split each downloaded
+    image into fixed-size panels after resizing it to the target width
 
     :param `progress_callback`: Optional callback invoked every time `main_progress`
     or `chapter_progress` changes. It receives no arguments — read the updated
