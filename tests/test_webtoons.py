@@ -1,5 +1,14 @@
 import mandown, time, os
 
+
+search = mandown.search("Star Emb")
+while True:
+    a = input(" : ")
+    print(eval(a))
+    
+
+
+"""
 url = (
     "https://m.comic.naver.com/webtoon/list?titleId=746857&week=thu&sortOrder=ASC"
 )
@@ -26,3 +35,4 @@ if __name__ == '__main__':
             panel_size=(1200, 800),
             image_format="jpg",
         )
+"""

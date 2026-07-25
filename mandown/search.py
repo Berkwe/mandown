@@ -1,4 +1,38 @@
-"""Cross-source series search."""
+"""
+Search for comic series across Naver Webtoon, WEBTOON, and MangaDex.
+
+The public entry point is :func:`mandown.search`. It returns a
+:class:`SearchResults` mapping with one key for every supported catalog:
+
+.. code-block:: python
+
+    {
+        "naver": list[SearchItem] | None,
+        "webtoons": list[SearchItem] | None,
+        "mangadex": list[SearchItem] | None,
+    }
+
+Matches remain in the order returned by each catalog. A catalog maps to
+``None`` when it has no matches. Each :class:`SearchItem` contains lightweight
+search metadata such as ``title``, ``url``, ``authors``, and ``cover_art``.
+It does not fetch the full chapter list during the initial search.
+
+Access ``item.comic`` to query the selected URL and obtain a complete
+:class:`mandown.BaseComic`. The resulting comic is cached on that search item:
+
+.. code-block:: python
+
+    results = mandown.search("solo leveling")
+    matches = results["mangadex"]
+
+    if matches is not None:
+        first_match = matches[0]
+        print(first_match.title, first_match.url)
+        comic = first_match.comic
+
+Use ``results.asdict()`` to convert all lightweight results to plain Python
+dictionaries suitable for JSON serialization.
+"""
 
 from functools import cached_property
 
