@@ -125,16 +125,32 @@ class MandownQtUi(QWidget):
             )
 
     def hook_from_url(self) -> None:
-        active_url = self.ui.text_source.text()
+        active_input = self.ui.text_source.text().strip()
         try:
-            comic = mandown.query(active_url)
-        except ValueError:
+            if active_input.startswith(("http://", "https://")):
+                comic = mandown.query(active_input)
+            else:
+                results = mandown.search(active_input)
+                first_match = next(
+                    (
+                        matches[0]
+                        for matches in results.values()
+                        if matches
+                    ),
+                    None,
+                )
+                if first_match is None:
+                    raise ValueError("No search results found.")
+                comic = first_match.comic
+                self.ui.text_source.setText(first_match.url)
+        except (ValueError, requests.RequestException, RuntimeError):
             res = QMessageBox.critical(
                 self,
                 "Unknown Comic",
-                "Could not find comic: URL did not match any sources.",
+                "Could not find a matching comic.",
                 QMessageBox.Ok,
             )
+            return
         self.comic = comic
 
     def hook_set_dest(self) -> None:

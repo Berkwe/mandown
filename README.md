@@ -102,7 +102,9 @@ To request a new site, please file a [new issue](https://github.com/potatoeggy/m
 
 ## Basic library usage
 
-See the [docs](/docs/) for more information and examples.
+See the [Python API guide](/docs/python_api.md) for the main functions,
+arguments, return values, and examples. The [topic guides](/docs/) contain
+more information about downloading, processing, and conversion.
 
 To just download the images:
 

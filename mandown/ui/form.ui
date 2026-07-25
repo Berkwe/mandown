@@ -19,7 +19,7 @@
      <item>
       <widget class="QLabel" name="label_4">
        <property name="text">
-        <string>Source Folder / URL:</string>
+        <string>Series name / URL / Folder:</string>
        </property>
       </widget>
      </item>
@@ -29,7 +29,7 @@
      <item>
       <widget class="QPushButton" name="button_from_url">
        <property name="text">
-        <string>Search URL</string>
+        <string>Search</string>
        </property>
        <property name="icon">
         <iconset theme="search"/>

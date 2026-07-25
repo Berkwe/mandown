@@ -13,6 +13,14 @@ from .comic import BaseComic
 from .convert_utils import ConvertFormats, convert_one
 from .errors import ChapterImageCountMismatchError, ImageDownloadError
 from .processor import ProcessConfig, ProcessOps, Processor
+from .search import SearchItem, SearchResults
+
+
+SEARCH_SOURCES = {
+    "naver": sources.source_naver.NaverWebtoonSource,
+    "webtoons": sources.source_webtoons.WebtoonsSource,
+    "mangadex": sources.source_mangadex.MangaDexSource,
+}
 
 
 def query(url: str) -> BaseComic:
@@ -23,6 +31,44 @@ def query(url: str) -> BaseComic:
     """
     adapter = sources.get_class_for(url)(url)
     return BaseComic(adapter.metadata, adapter.chapters)
+
+
+def search(title: str) -> SearchResults:
+    """
+    Search Naver Webtoon, WEBTOON, and MangaDex for a series title.
+
+    The returned mapping always contains the keys ``naver``, ``webtoons``, and
+    ``mangadex``. Each value is an ordered list of lightweight
+    :class:`SearchItem` objects, or ``None`` when that catalog has no matches.
+    Search results do not fetch every chapter immediately; access
+    ``item.comic`` to load the selected result as a full :class:`BaseComic`.
+
+    Example::
+
+        results = mandown.search("solo leveling")
+        matches = results["mangadex"]
+        if matches:
+            comic = matches[0].comic
+
+    :param title: Series title or search phrase. Leading and trailing whitespace
+        is ignored.
+    :returns: Search results grouped by supported catalog.
+    :raises ValueError: If ``title`` is empty or contains only whitespace.
+    """
+    if not title or not title.strip():
+        raise ValueError("Search title cannot be empty.")
+
+    # Ask each supported catalog to search using its own native search endpoint.
+    # Keep the matches lightweight here; the full comic and its chapters are
+    # fetched only when the caller accesses SearchItem.comic.
+    output = SearchResults()
+    for source_name, source_class in SEARCH_SOURCES.items():
+        matches = [SearchItem(source_name, match) for match in source_class.search(title.strip())]
+
+        # A missing result is represented by None so callers can distinguish it
+        # directly from a catalog that returned one or more ordered matches.
+        output[source_name] = matches or None
+    return output
 
 
 def load(path: Path | str) -> BaseComic:

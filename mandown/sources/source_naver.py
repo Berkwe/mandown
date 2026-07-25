@@ -11,6 +11,7 @@ from bs4 import BeautifulSoup
 
 from ..base import BaseChapter, BaseMetadata
 from ..request_utils import USER_AGENT
+from .base_source import SourceSearchResult
 from .common_source import CommonSource
 
 
@@ -21,6 +22,41 @@ class NaverWebtoonSource(CommonSource):
         "Referer": "https://m.comic.naver.com/",
         "User-Agent": USER_AGENT,
     }
+
+    @classmethod
+    def search(cls, title: str) -> list[SourceSearchResult]:
+        response = requests.get(
+            "https://comic.naver.com/api/search/all",
+            params={"keyword": title},
+            headers=cls.headers,
+            timeout=20,
+        )
+        response.raise_for_status()
+        rows = response.json().get("searchWebtoonResult", {}).get("searchViewList", [])
+
+        results: list[SourceSearchResult] = []
+        for row in rows:
+            title_id = row.get("titleId")
+            if not title_id:
+                continue
+            artists = row.get("communityArtists") or []
+            authors = tuple(
+                artist["name"]
+                for artist in artists
+                if isinstance(artist, dict) and artist.get("name")
+            )
+            results.append(
+                SourceSearchResult(
+                    title=row.get("titleName") or str(title_id),
+                    url=(
+                        "https://m.comic.naver.com/webtoon/list?"
+                        f"titleId={title_id}&sortOrder=ASC"
+                    ),
+                    authors=authors,
+                    cover_art=row.get("thumbnailUrl") or "",
+                )
+            )
+        return results
 
     def __init__(self, url: str) -> None:
         super().__init__(url)

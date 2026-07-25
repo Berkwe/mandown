@@ -162,8 +162,8 @@ class Ui_Widget(object):
 
     def retranslateUi(self, Widget):
         Widget.setWindowTitle(QCoreApplication.translate("Widget", "Widget", None))
-        self.label_4.setText(QCoreApplication.translate("Widget", "Source Folder / URL:", None))
-        self.button_from_url.setText(QCoreApplication.translate("Widget", "Search URL", None))
+        self.label_4.setText(QCoreApplication.translate("Widget", "Series name / URL / Folder:", None))
+        self.button_from_url.setText(QCoreApplication.translate("Widget", "Search", None))
         self.button_from_folder.setText(QCoreApplication.translate("Widget", "Open Folder", None))
         self.label_5.setText(QCoreApplication.translate("Widget", "Save to:", None))
         self.pushButton_3.setText(QCoreApplication.translate("Widget", "Browse", None))

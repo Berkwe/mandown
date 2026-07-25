@@ -11,3 +11,22 @@ comic: BaseComic = mandown.query("https://example.com/comic")
 
 print(comic.metadata.title, comic.chapters[0].title)
 ```
+
+## Searching by series name
+
+Search Naver Webtoon, WEBTOON and MangaDex at once:
+
+```python
+results = mandown.search("solo leveling")
+webtoons_results = results["webtoons"]
+
+if webtoons_results is not None:
+    match = webtoons_results[0]
+    print(match.title, match.url)
+    comic = match.comic
+```
+
+Each site maps to a list of lightweight `SearchItem` objects, or `None` when
+that site has no matches. Accessing `match.comic` performs the same full query
+as `mandown.query(match.url)`. Search data can be serialized with
+`results.asdict()` or `match.asdict()`.

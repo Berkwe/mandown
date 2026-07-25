@@ -1,7 +1,19 @@
 from collections import defaultdict
+from dataclasses import dataclass, field
 from typing import final
 
 from ..base import BaseChapter, BaseMetadata
+
+
+@dataclass(frozen=True)
+class SourceSearchResult:
+    """Lightweight search data returned by a source without fetching chapters."""
+
+    title: str
+    url: str
+    authors: tuple[str, ...] = ()
+    cover_art: str = ""
+    extra: dict = field(default_factory=dict)
 
 
 class BaseSource:
@@ -93,6 +105,11 @@ class BaseSource:
         order for that chapter.
         """
         raise NotImplementedError("Image URL getter not overridden")
+
+    @classmethod
+    def search(cls, title: str) -> list[SourceSearchResult]:
+        """Search this source for a series title."""
+        raise NotImplementedError(f"Search is not supported by {cls.name}")
 
     @staticmethod
     def check_url(url: str) -> bool:
