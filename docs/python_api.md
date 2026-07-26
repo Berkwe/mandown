@@ -38,31 +38,40 @@ if mangadex_matches:
 
 ## Searching and querying
 
-### `mandown.search(title)`
+### `mandown.search(title, source=None)`
 
-Searches Naver Webtoon, WEBTOON, and MangaDex.
+Searches Naver Webtoon, WEBTOON, and MangaDex by default. AniList is available
+with `source="anilist"`; `search_all()` performs concurrent search and derives
+its WEBTOON results from AniList.
 
 Arguments:
 
 - `title` (`str`): A series name or search phrase. Surrounding whitespace is
   removed. An empty search raises `ValueError`.
+- `source` (`str | None`): Optionally search only `"naver"`, `"webtoons"`,
+  `"mangadex"`, or `"anilist"`. Matching is case-insensitive. An unsupported
+  value raises `ValueError`.
 
 Returns:
 
 - `SearchResults`: A dictionary-like object with the keys `naver`, `webtoons`,
-  and `mangadex`.
+  `mangadex`, and `anilist`.
 - Each key contains an ordered `list[SearchItem]`, or `None` when that site has
-  no matches.
+  no matches or was skipped by the source filter.
 
 Each `SearchItem` provides:
 
 - `source`: The source key.
 - `title`: The title shown by the source.
-- `url`: A supported series URL.
+- `url`: The series URL returned by the catalog. WEBTOON batches from
+  `search_all()` use the matching AniList external-link URL directly.
 - `authors`: Authors available in the search response.
 - `cover_art`: Cover URL when available.
-- `comic`: A lazily loaded `BaseComic`. The network request happens on first
-  access and the resulting object is cached.
+- `extra`: Source-specific metadata such as AniList IDs, titles, and external
+  links.
+- `comic`: Calls `mandown.query(url)` on first access and caches the resulting
+  `BaseComic`. It raises `ValueError` if the catalog URL is not supported by a
+  Mandown source adapter, for example an AniList-only URL without a Naver link.
 - `asdict()`: Converts the lightweight result to a plain dictionary.
 
 `SearchResults.asdict()` converts all results to plain dictionaries. This is
@@ -85,6 +94,71 @@ if webtoons_matches is not None:
 
 Search results are deliberately lightweight. Calling `search()` does not fetch
 the metadata and chapter list for every match.
+
+To avoid contacting every catalog:
+
+```python
+results = mandown.search("Tower of God", source="naver")
+naver_matches = results["naver"]
+
+assert results["webtoons"] is None
+assert results["mangadex"] is None
+assert results["anilist"] is None
+```
+
+AniList results use `type: MANGA` and `countryOfOrigin: "KR"`. Their
+`SearchItem.extra` mapping contains:
+
+- `anilist_id`: AniList media ID.
+- `title.native`: Native Korean title.
+- `title.english`: English title, or `None`.
+- `externalLinks`: Every `{site, url}` external link returned by AniList.
+- `naver_url`: The URL whose site is `Naver Webtoon`, or `None`.
+
+### `mandown.search_all(query, *, webtoons_fallback=False)`
+
+Runs Naver, MangaDex, and AniList searches concurrently. It is an async
+generator and yields their batches in completion order. The `webtoons` batch
+is built directly from AniList external links whose `site` is `WEBTOON` and is
+yielded immediately after the `anilist` batch. The standalone WEBTOON search
+does not run by default.
+
+Set `webtoons_fallback=True` to run the standalone WEBTOON search only when
+none of the AniList matches contains a `WEBTOON` external link. When fallback
+is disabled or finds no match, the `webtoons` batch is an empty list.
+
+Arguments:
+
+- `query` (`str`): A series name or search phrase. Surrounding whitespace is
+  removed. An empty query raises `ValueError`.
+- `webtoons_fallback` (`bool`): Enable the standalone WEBTOON search only as
+  the missing-link fallback described above. Default: `False`.
+
+Yields:
+
+- `(source, list[SearchItem])`: One batch for each source. A batch list can be
+  empty.
+
+AniList-derived WEBTOON items retain the AniList metadata in `item.extra` while
+using the WEBTOON external-link URL as `item.url`.
+
+```python
+import asyncio
+import mandown
+
+
+async def show_results():
+    async for source, matches in mandown.search_all("Tower of God"):
+        print(source, [match.title for match in matches])
+
+
+asyncio.run(show_results())
+```
+
+The Naver, MangaDex, and AniList completion order is intentionally not fixed;
+`webtoons` is the one ordering exception because it depends on AniList. If a
+provider fails, results already completed by other providers remain yielded
+before that provider exception is raised.
 
 ### `mandown.query(url)`
 
@@ -366,9 +440,10 @@ Returns:
 
 ## Error handling
 
-Remote sites can change or become unavailable. Code that accepts user input
-should normally handle unsupported URLs, invalid search text, and request
-errors:
+Remote sites can change or become unavailable. `SourceResponseError` is a
+public `MandownError` subclass used when AniList or WEBTOON returns an
+unusable status, content type, or payload. Other source clients can still
+raise `requests.RequestException`.
 
 ```python
 import requests
@@ -377,9 +452,8 @@ try:
     results = mandown.search(user_text)
 except ValueError as error:
     print("Invalid search:", error)
+except mandown.SourceResponseError as error:
+    print("A source returned an invalid response:", error)
 except requests.RequestException as error:
     print("A source could not be reached:", error)
 ```
-
-Source adapters can also raise source-specific `RuntimeError` values when a
-remote response cannot be used.
