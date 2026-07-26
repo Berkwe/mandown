@@ -12,6 +12,7 @@ from .api import (
 )
 from .base import BaseChapter, BaseMetadata
 from .comic import BaseComic
+from .errors import SourceResponseError
 from .io import MD_METADATA_FILE
 from .processor import (
     ProcessConfig,
@@ -20,6 +21,5 @@ from .processor import (
     Processor,
 )
 from .processor.profiles import SupportedProfiles, all_profiles
-
 __version__ = (1, 12, 2)
 __version_str__ = ".".join(map(str, __version__))
