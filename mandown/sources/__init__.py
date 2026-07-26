@@ -18,6 +18,7 @@ from . import (
     source_manganato,
     source_manhwaz,
     source_naver,
+    source_naver_series,
     source_readcomiconline,
     source_thecomicseries,
     source_webtoons,
