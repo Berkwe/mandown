@@ -121,9 +121,12 @@ Runs Naver, MangaDex, and AniList searches concurrently. It is an async
 generator and yields their batches in completion order. URLs in an AniList
 result or its external links are classified by host and added to the matching
 `naver`, `webtoons`, or `mangadex` batch. This includes both Naver Webtoon and
-Naver Series URLs. A Naver or MangaDex search that finishes first waits for
-AniList so its batch can include these matches. The standalone WEBTOON search
-does not run by default.
+Naver Series URLs. Naver Series comics are downloadable when Mandown can
+unambiguously match the Series title, authors, and chapter count to a Naver
+Webtoon edition. Series-only titles use Naver's authenticated app viewer and
+raise `SourceResponseError`. A Naver or MangaDex search that finishes first
+waits for AniList so its batch can include these matches. The standalone
+WEBTOON search does not run by default.
 
 Set `webtoons_fallback=True` to run the standalone WEBTOON search only when
 none of the AniList matches contains a `WEBTOON` external link. When fallback

@@ -96,6 +96,8 @@ To request a new site, please file a [new issue](https://github.com/potatoeggy/m
 - https://\*.thecomicseries.com
 - <https://natomanga.com>
 - <https://webtoons.com>
+- <https://comic.naver.com>
+- <https://series.naver.com> (when the comic has a matching Naver Webtoon edition)
 - <https://mangadex.org>
 - <https://readcomiconline.li>
 - <https://www.kuaikanmanhua.com>
