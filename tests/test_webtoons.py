@@ -5,14 +5,19 @@ import mandown
 
 
 async def main() -> None:
-    for query in ["the long way"]:
+    for query in ["shadow slave"]:
         print(f"\n=== {query} ===")
         start = time.perf_counter()
-        async for source, matches in mandown.search_all(query):
+        async for source, groups in mandown.search_all(query, deduplicate=True):
             elapsed = time.perf_counter() - start
-            print(f"\n[{source}] ({elapsed:.2f}s)")
-            for m in matches:
-                print(f"  {m.title} — {m.url}")
+            print(f"\n[{source}] {len(groups)} ayrı grup ({elapsed:.2f}s)")
+            for index, group in enumerate(groups, 1):
+                print(f"\n  Grup {index}")
+                print(f"    Başlıklar: {' + '.join(group.titles)}")
+                print(f"    Kaynaklar: {', '.join(group.sources)}")
+                for group_source, url in group.urls.items():
+                    if url is not None:
+                        print(f"    {group_source}: {url}")
 
 
 if __name__ == "__main__":

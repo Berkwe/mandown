@@ -11,7 +11,7 @@ from . import io, sources
 from .base import Progress
 from .comic import BaseComic
 from .convert_utils import ConvertFormats, convert_one
-from .errors import ChapterImageCountMismatchError, ImageDownloadError
+from .errors import ChapterImageCountMismatchError, ImageDownloadError, SourceResponseError
 from .processor import ProcessConfig, ProcessOps, Processor
 from .search import SEARCH_PROVIDERS, SearchItem, SearchResults
 
@@ -76,7 +76,15 @@ def search(title: str, source: str | None = None) -> SearchResults:
         if not should_search:
             output[source_name] = None
             continue
-        matches = [SearchItem(source_name, match) for match in provider(title.strip())]
+        provider_matches = provider(title.strip())
+        if provider_matches is None:
+            provider_matches = []
+        elif not isinstance(provider_matches, list):
+            raise SourceResponseError(
+                f"{source_name} search provider returned "
+                f"{type(provider_matches).__name__}, expected a list or None"
+            )
+        matches = [SearchItem(source_name, match) for match in provider_matches]
 
         # A missing result is represented by None so callers can distinguish it
         # directly from a catalog that returned one or more ordered matches.

@@ -14,6 +14,7 @@ class SourceSearchResult:
     authors: tuple[str, ...] = ()
     cover_art: str = ""
     extra: dict = field(default_factory=dict)
+    identifiers: dict[str, int | str | None] = field(default_factory=dict)
 
 
 class BaseSource:

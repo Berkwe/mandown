@@ -46,6 +46,24 @@ its matching URLs. The standalone WEBTOON search is disabled in this
 orchestrator by default. To use it only when AniList contains no WEBTOON URL,
 call `mandown.search_all("solo leveling", webtoons_fallback=True)`.
 
+To receive deduplicated cross-catalog groups instead of raw source batches:
+
+```python
+async for source, groups in mandown.search_all(
+    "solo leveling",
+    deduplicate=True,
+):
+    assert source == "merged"
+    for group in groups:
+        print(group.titles, group.urls, group.identifiers, group.sources)
+```
+
+Groups match on the first shared non-empty identifier in this order: AniList,
+MyAnimeList, then Naver. Identifier values are converted to integers for
+comparison, so values such as `"122082"` and `122082` match. Missing
+identifiers never match each other, and results without a match remain as
+separate groups in the final merged batch.
+
 The synchronous `search()` mapping uses a list of lightweight `SearchItem`
 objects or `None` for each site. Every `search_all()` batch instead contains a
 list, which can be empty. Accessing `match.comic` performs the same full query

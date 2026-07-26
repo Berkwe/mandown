@@ -7,6 +7,7 @@ import requests
 
 from .errors import SourceResponseError
 from .request_utils import USER_AGENT
+from .search_common import parse_int_identifier, parse_naver_id, parse_webtoons_id
 from .sources.base_source import SourceSearchResult
 
 API_URL = "https://graphql.anilist.co"
@@ -19,6 +20,7 @@ query SearchKoreanManga($search: String!) {
   Page(page: 1, perPage: 25) {
     media(search: $search, type: MANGA, countryOfOrigin: "KR") {
       id
+      idMal
       title {
         native
         english
@@ -62,14 +64,16 @@ def search(query: str) -> list[SourceSearchResult]:
             _optional_string(titles.get("english")) if isinstance(titles, dict) else None
         )
         external_links = _external_links(media.get("externalLinks"))
+        mal_id = parse_int_identifier(media.get("idMal"))
         naver_url = next(
             (
                 link["url"]
                 for link in external_links
-                if link["site"].casefold() == "naver webtoon"
+                if parse_naver_id(link["url"]) is not None
             ),
             None,
         )
+        webtoons_url = _preferred_webtoons_url(external_links)
         result_url = naver_url or f"https://anilist.co/manga/{anilist_id}"
         display_title = english_title or native_title or str(anilist_id)
 
@@ -79,12 +83,21 @@ def search(query: str) -> list[SourceSearchResult]:
                 url=result_url,
                 extra={
                     "anilist_id": anilist_id,
+                    "mal_id": mal_id,
                     "title": {
                         "native": native_title,
                         "english": english_title,
                     },
                     "externalLinks": external_links,
                     "naver_url": naver_url,
+                    "webtoons_url": webtoons_url,
+                },
+                identifiers={
+                    "anilist_id": anilist_id,
+                    "mal_id": mal_id,
+                    "naver_id": parse_naver_id(naver_url),
+                    "webtoons_id": parse_webtoons_id(webtoons_url),
+                    "mangadex_id": None,
                 },
             )
         )
@@ -113,6 +126,8 @@ def _post_graphql(variables: dict[str, Any]) -> dict[str, Any]:
         except requests.RequestException as error:
             raise _response_error(f"request failed: {error}") from error
 
+        if response is None:
+            raise _response_error("request returned no response")
         if (response.status_code == 429 or 500 <= response.status_code <= 599) and (
             attempt + 1 < MAX_REQUEST_ATTEMPTS
         ):
@@ -157,6 +172,19 @@ def _external_links(value: Any) -> list[dict[str, str]]:
         if url is not None and site is not None:
             links.append({"url": url, "site": site})
     return links
+
+
+def _preferred_webtoons_url(external_links: list[dict[str, str]]) -> str | None:
+    candidates = [
+        link["url"]
+        for link in external_links
+        if link["site"].casefold() == "webtoon"
+        and parse_webtoons_id(link["url"]) is not None
+    ]
+    return next(
+        (url for url in candidates if "/en/" in url.casefold()),
+        candidates[0] if candidates else None,
+    )
 
 
 def _optional_string(value: Any) -> str | None:

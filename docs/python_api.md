@@ -69,6 +69,11 @@ Each `SearchItem` provides:
 - `cover_art`: Cover URL when available.
 - `extra`: Source-specific metadata such as AniList IDs, titles, and external
   links.
+- `identifiers`: Always contains `anilist_id`, `mal_id`, `naver_id`,
+  `webtoons_id`, and `mangadex_id`; unavailable values are `None`.
+- `urls`: Source URLs keyed by `naver`, `webtoons`, `mangadex`, and `anilist`.
+- `titles`: All distinct titles retained during a merge.
+- `sources`: All catalogs contributing to the item. It is never empty.
 - `comic`: Calls `mandown.query(url)` on first access and caches the resulting
   `BaseComic`. It raises `ValueError` if the catalog URL is not supported by a
   Mandown source adapter, for example an AniList-only URL without a Naver link.
@@ -114,8 +119,10 @@ AniList results use `type: MANGA` and `countryOfOrigin: "KR"`. Their
 - `title.english`: English title, or `None`.
 - `externalLinks`: Every `{site, url}` external link returned by AniList.
 - `naver_url`: The URL whose site is `Naver Webtoon`, or `None`.
+- `webtoons_url`: The preferred `site: "WEBTOON"` URL. An `/en/` URL is
+  selected when available; otherwise the first valid WEBTOON URL is used.
 
-### `mandown.search_all(query, *, webtoons_fallback=False, retries=2)`
+### `mandown.search_all(query, *, webtoons_fallback=False, retries=2, deduplicate=False)`
 
 Runs Naver, MangaDex, and AniList searches concurrently. It is an async
 generator and yields their batches in completion order. URLs in an AniList
@@ -136,6 +143,15 @@ When a provider raises `SourceResponseError`, `search_all()` retries only that
 provider up to `retries` additional times. The default permits at most three
 provider calls. If the final attempt also fails, its error is raised.
 
+With `deduplicate=True`, completed results are compared against existing groups
+by the first shared non-`None` identifier in this order: `anilist_id`,
+`mal_id`, then `naver_id`. Identifier values are normalized to integers before
+comparison, so numeric strings and integers match. Missing identifiers never
+match each other. Results that never share any of these identifiers remain as
+separate groups in the final `"merged"` batch. A merge fills missing
+identifiers, updates the four-source `urls` mapping, combines distinct `titles`,
+and records every contributing source in `sources`.
+
 Arguments:
 
 - `query` (`str`): A series name or search phrase. Surrounding whitespace is
@@ -144,11 +160,15 @@ Arguments:
   the missing-link fallback described above. Default: `False`.
 - `retries` (`int`): Additional attempts after a `SourceResponseError`.
   Default: `2`. Use `0` to disable retries.
+- `deduplicate` (`bool`): Yield one final `"merged"` batch containing
+  identifier-matched groups and unmatched single-result groups instead of raw
+  source batches. Default: `False`.
 
 Yields:
 
 - `(source, list[SearchItem])`: One batch for each source. A batch list can be
-  empty.
+  empty. With `deduplicate=True`, exactly one `("merged", groups)` batch is
+  yielded after all providers complete.
 
 AniList-derived source items retain the AniList metadata in `item.extra` while
 using the matching source URL as `item.url`.
@@ -159,8 +179,13 @@ import mandown
 
 
 async def show_results():
-    async for source, matches in mandown.search_all("Tower of God"):
-        print(source, [match.title for match in matches])
+    async for source, matches in mandown.search_all(
+        "Tower of God",
+        deduplicate=True,
+    ):
+        print(source)
+        for match in matches:
+            print(match.titles, match.urls, match.sources)
 
 
 asyncio.run(show_results())
@@ -453,9 +478,10 @@ Returns:
 ## Error handling
 
 Remote sites can change or become unavailable. `SourceResponseError` is a
-public `MandownError` subclass used when AniList or WEBTOON returns an
-unusable status, content type, or payload. Other source clients can still
-raise `requests.RequestException`.
+public `MandownError` subclass used when a search provider returns no HTTP
+response, an unusable status or payload, or an invalid result type. A provider
+that returns `None` is treated as having no matches. Non-search source clients
+can still raise `requests.RequestException`.
 
 ```python
 import requests

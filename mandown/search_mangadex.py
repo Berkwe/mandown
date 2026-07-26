@@ -2,6 +2,8 @@
 
 import requests
 
+from .errors import SourceResponseError
+from .search_common import parse_int_identifier, parse_mangadex_id, parse_naver_id
 from .sources.base_source import SourceSearchResult
 from .sources.source_mangadex import MangaDexSource
 
@@ -14,7 +16,16 @@ def search(query: str) -> list[SourceSearchResult]:
         "&limit=20&includes[]=author&includes[]=artist&includes[]=cover_art"
         "&order[relevance]=desc"
     )
-    response = MangaDexSource._get(api_url)
+    try:
+        response = MangaDexSource._get(api_url)
+    except (requests.RequestException, RuntimeError) as error:
+        raise SourceResponseError(
+            f"MangaDex response error: url={api_url}, request failed: {error}"
+        ) from error
+    if response is None:
+        raise SourceResponseError(
+            f"MangaDex response error: url={api_url}, request returned no response"
+        )
     payload = MangaDexSource._json_object(response, api_url)
     results: list[SourceSearchResult] = []
     for manga in MangaDexSource._sequence(payload.get("data")):
@@ -25,6 +36,7 @@ def search(query: str) -> list[SourceSearchResult]:
             continue
         attributes = MangaDexSource._mapping(manga.get("attributes"))
         titles = MangaDexSource._mapping(attributes.get("title"))
+        links = MangaDexSource._mapping(attributes.get("links"))
         display_title = titles.get("en") or next(iter(titles.values()), manga_id)
         if not isinstance(display_title, str) or not display_title:
             display_title = manga_id
@@ -53,6 +65,13 @@ def search(query: str) -> list[SourceSearchResult]:
                 url=f"https://mangadex.org/title/{manga_id}",
                 authors=tuple(authors),
                 cover_art=cover_art,
+                identifiers={
+                    "anilist_id": parse_int_identifier(links.get("al")),
+                    "mal_id": parse_int_identifier(links.get("mal")),
+                    "naver_id": parse_naver_id(links.get("raw")),
+                    "webtoons_id": None,
+                    "mangadex_id": parse_mangadex_id(manga_id),
+                },
             )
         )
     return results
