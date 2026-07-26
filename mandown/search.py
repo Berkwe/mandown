@@ -21,6 +21,7 @@ import asyncio
 from collections.abc import AsyncIterator, Callable
 
 from . import search_anilist, search_mangadex, search_naver, search_webtoons
+from .errors import SourceResponseError
 from .search_common import SearchItem, SearchResults
 from .sources.base_source import SourceSearchResult
 
@@ -74,31 +75,46 @@ async def search_all(
     query: str,
     *,
     webtoons_fallback: bool = False,
+    retries: int = 2,
 ) -> AsyncIterator[SearchBatch]:
     """
     Search providers concurrently and yield each completed batch.
 
     WEBTOON results are derived from AniList external links. The standalone
     WEBTOON provider only runs when ``webtoons_fallback`` is true and AniList
-    returned no WEBTOON links.
+    returned no WEBTOON links. A provider that raises
+    :class:`~mandown.errors.SourceResponseError` is called again up to
+    ``retries`` times. If every attempt fails, the last error is raised.
 
     :param query: Series title or search phrase.
     :param webtoons_fallback: Search WEBTOON directly when AniList contains no
         WEBTOON external links. Disabled by default.
+    :param retries: Number of additional attempts after a source response
+        error. Defaults to 2, for at most 3 provider calls.
     :yields: ``(source, list[SearchItem])`` in provider completion order, with
         the derived WEBTOON batch immediately following AniList.
-    :raises ValueError: If ``query`` is empty or contains only whitespace.
+    :raises ValueError: If ``query`` is empty or ``retries`` is not a
+        non-negative integer.
+    :raises SourceResponseError: If a provider still fails after all retries.
     """
     normalized_query = query.strip() if query else ""
     if not normalized_query:
         raise ValueError("Search query cannot be empty.")
+    if isinstance(retries, bool) or not isinstance(retries, int) or retries < 0:
+        raise ValueError("Search retries must be a non-negative integer.")
 
     async def run_provider(
         source: str,
         provider: SearchProvider,
     ) -> tuple[str, list[SourceSearchResult]]:
-        matches = await asyncio.to_thread(provider, normalized_query)
-        return source, matches
+        for attempt in range(retries + 1):
+            try:
+                matches = await asyncio.to_thread(provider, normalized_query)
+                return source, matches
+            except SourceResponseError:
+                if attempt == retries:
+                    raise
+        raise AssertionError("Search provider retry loop ended unexpectedly")
 
     has_anilist = "anilist" in SEARCH_PROVIDERS
     tasks = [
@@ -113,9 +129,9 @@ async def search_all(
             if source == "anilist" and "webtoons" in SEARCH_PROVIDERS:
                 webtoons_matches = _webtoons_from_anilist(matches)
                 if not webtoons_matches and webtoons_fallback:
-                    webtoons_matches = await asyncio.to_thread(
+                    _, webtoons_matches = await run_provider(
+                        "webtoons",
                         SEARCH_PROVIDERS["webtoons"],
-                        normalized_query,
                     )
                 yield "webtoons", [
                     SearchItem("webtoons", match) for match in webtoons_matches

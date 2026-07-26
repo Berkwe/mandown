@@ -115,7 +115,7 @@ AniList results use `type: MANGA` and `countryOfOrigin: "KR"`. Their
 - `externalLinks`: Every `{site, url}` external link returned by AniList.
 - `naver_url`: The URL whose site is `Naver Webtoon`, or `None`.
 
-### `mandown.search_all(query, *, webtoons_fallback=False)`
+### `mandown.search_all(query, *, webtoons_fallback=False, retries=2)`
 
 Runs Naver, MangaDex, and AniList searches concurrently. It is an async
 generator and yields their batches in completion order. The `webtoons` batch
@@ -127,12 +127,18 @@ Set `webtoons_fallback=True` to run the standalone WEBTOON search only when
 none of the AniList matches contains a `WEBTOON` external link. When fallback
 is disabled or finds no match, the `webtoons` batch is an empty list.
 
+When a provider raises `SourceResponseError`, `search_all()` retries only that
+provider up to `retries` additional times. The default permits at most three
+provider calls. If the final attempt also fails, its error is raised.
+
 Arguments:
 
 - `query` (`str`): A series name or search phrase. Surrounding whitespace is
   removed. An empty query raises `ValueError`.
 - `webtoons_fallback` (`bool`): Enable the standalone WEBTOON search only as
   the missing-link fallback described above. Default: `False`.
+- `retries` (`int`): Additional attempts after a `SourceResponseError`.
+  Default: `2`. Use `0` to disable retries.
 
 Yields:
 
@@ -157,8 +163,8 @@ asyncio.run(show_results())
 
 The Naver, MangaDex, and AniList completion order is intentionally not fixed;
 `webtoons` is the one ordering exception because it depends on AniList. If a
-provider fails, results already completed by other providers remain yielded
-before that provider exception is raised.
+provider still fails after its retries, results already completed by other
+providers remain yielded before that provider exception is raised.
 
 ### `mandown.query(url)`
 

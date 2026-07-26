@@ -5,7 +5,7 @@ import mandown
 
 
 async def main() -> None:
-    for query in ["star embracing swordmaster"]:
+    for query in ["shadow slave"]:
         print(f"\n=== {query} ===")
         start = time.perf_counter()
         async for source, matches in mandown.search_all(query):

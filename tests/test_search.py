@@ -6,6 +6,7 @@ import pytest
 
 import mandown
 from mandown import api
+from mandown.errors import SourceResponseError
 from mandown.search import SearchItem, SearchResults
 from mandown.sources.base_source import SourceSearchResult
 from mandown.sources.source_mangadex import MangaDexSource
@@ -344,4 +345,82 @@ def test_search_all_rejects_empty_query() -> None:
             pass
 
     with pytest.raises(ValueError, match="cannot be empty"):
+        asyncio.run(consume())
+
+
+def test_search_all_retries_source_response_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    search_module = importlib.import_module("mandown.search")
+    calls = 0
+
+    def flaky_provider(query: str) -> list[SourceSearchResult]:
+        nonlocal calls
+        calls += 1
+        if calls < 3:
+            raise SourceResponseError(f"temporary failure {calls}")
+        return [SourceSearchResult("Recovered", "https://example.com/recovered")]
+
+    monkeypatch.setattr(
+        search_module,
+        "SEARCH_PROVIDERS",
+        {"flaky": flaky_provider},
+    )
+
+    async def collect_results() -> list[tuple[str, list[SearchItem]]]:
+        return [
+            batch
+            async for batch in search_module.search_all("Series", retries=2)
+        ]
+
+    batches = asyncio.run(collect_results())
+
+    assert calls == 3
+    assert batches[0][0] == "flaky"
+    assert batches[0][1][0].title == "Recovered"
+
+
+def test_search_all_raises_last_error_after_retries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    search_module = importlib.import_module("mandown.search")
+    errors = [
+        SourceResponseError("failure 1"),
+        SourceResponseError("failure 2"),
+        SourceResponseError("failure 3"),
+    ]
+    calls = 0
+
+    def failing_provider(query: str) -> list[SourceSearchResult]:
+        nonlocal calls
+        error = errors[calls]
+        calls += 1
+        raise error
+
+    monkeypatch.setattr(
+        search_module,
+        "SEARCH_PROVIDERS",
+        {"failing": failing_provider},
+    )
+
+    async def consume() -> None:
+        async for _ in search_module.search_all("Series", retries=2):
+            pass
+
+    with pytest.raises(SourceResponseError) as raised:
+        asyncio.run(consume())
+
+    assert calls == 3
+    assert raised.value is errors[-1]
+
+
+@pytest.mark.parametrize("retries", [-1, 1.5, True])
+def test_search_all_rejects_invalid_retries(retries: object) -> None:
+    search_module = importlib.import_module("mandown.search")
+
+    async def consume() -> None:
+        async for _ in search_module.search_all("Series", retries=retries):
+            pass
+
+    with pytest.raises(ValueError, match="non-negative integer"):
         asyncio.run(consume())
