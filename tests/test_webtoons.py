@@ -1,11 +1,22 @@
-import mandown, time, os
+import asyncio
+import time
+
+import mandown
 
 
-search = mandown.search("Star Emb")
-while True:
-    a = input(" : ")
-    print(eval(a))
-    
+async def main() -> None:
+    for query in ["star embracing swordmaster"]:
+        print(f"\n=== {query} ===")
+        start = time.perf_counter()
+        async for source, matches in mandown.search_all(query):
+            elapsed = time.perf_counter() - start
+            print(f"\n[{source}] ({elapsed:.2f}s)")
+            for m in matches:
+                print(f"  {m.title} — {m.url}")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
 
 
 """

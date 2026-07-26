@@ -1,8 +1,8 @@
 # pylint: disable=invalid-name
 
-from pathlib import Path
 import shutil
 import threading
+from pathlib import Path
 from typing import Callable, Iterator
 
 import comicon
@@ -13,14 +13,9 @@ from .comic import BaseComic
 from .convert_utils import ConvertFormats, convert_one
 from .errors import ChapterImageCountMismatchError, ImageDownloadError
 from .processor import ProcessConfig, ProcessOps, Processor
-from .search import SearchItem, SearchResults
+from .search import SEARCH_PROVIDERS, SearchItem, SearchResults
 
-
-SEARCH_SOURCES = {
-    "naver": sources.source_naver.NaverWebtoonSource,
-    "webtoons": sources.source_webtoons.WebtoonsSource,
-    "mangadex": sources.source_mangadex.MangaDexSource,
-}
+DEFAULT_SEARCH_SOURCES = ("naver", "webtoons", "mangadex")
 
 
 def query(url: str) -> BaseComic:
@@ -33,13 +28,17 @@ def query(url: str) -> BaseComic:
     return BaseComic(adapter.metadata, adapter.chapters)
 
 
-def search(title: str) -> SearchResults:
+def search(title: str, source: str | None = None) -> SearchResults:
     """
     Search Naver Webtoon, WEBTOON, and MangaDex for a series title.
 
-    The returned mapping always contains the keys ``naver``, ``webtoons``, and
-    ``mangadex``. Each value is an ordered list of lightweight
-    :class:`SearchItem` objects, or ``None`` when that catalog has no matches.
+    The returned mapping always contains the keys ``naver``, ``webtoons``,
+    ``mangadex``, and ``anilist``. AniList is available through
+    ``source="anilist"`` but is not queried by default; use
+    :func:`mandown.search_all` for concurrent search with WEBTOON results
+    derived from AniList external links. Unqueried catalogs remain ``None``.
+    Each value is an ordered list of lightweight :class:`SearchItem` objects,
+    or ``None`` when that catalog has no matches.
     Search results do not fetch every chapter immediately; access
     ``item.comic`` to load the selected result as a full :class:`BaseComic`.
 
@@ -52,18 +51,32 @@ def search(title: str) -> SearchResults:
 
     :param title: Series title or search phrase. Leading and trailing whitespace
         is ignored.
+    :param source: Optional source key: ``"naver"``, ``"webtoons"``,
+        ``"mangadex"``, or ``"anilist"``. Matching is case-insensitive.
     :returns: Search results grouped by supported catalog.
-    :raises ValueError: If ``title`` is empty or contains only whitespace.
+    :raises ValueError: If ``title`` is empty or ``source`` is unsupported.
     """
     if not title or not title.strip():
         raise ValueError("Search title cannot be empty.")
+    source_key = source.strip().lower() if source is not None else None
+    if source_key is not None and source_key not in SEARCH_PROVIDERS:
+        supported = ", ".join(SEARCH_PROVIDERS)
+        raise ValueError(f"Unsupported search source {source!r}. Choose one of: {supported}.")
 
     # Ask each supported catalog to search using its own native search endpoint.
     # Keep the matches lightweight here; the full comic and its chapters are
     # fetched only when the caller accesses SearchItem.comic.
     output = SearchResults()
-    for source_name, source_class in SEARCH_SOURCES.items():
-        matches = [SearchItem(source_name, match) for match in source_class.search(title.strip())]
+    for source_name, provider in SEARCH_PROVIDERS.items():
+        should_search = (
+            source_name == source_key
+            if source_key is not None
+            else source_name in DEFAULT_SEARCH_SOURCES
+        )
+        if not should_search:
+            output[source_name] = None
+            continue
+        matches = [SearchItem(source_name, match) for match in provider(title.strip())]
 
         # A missing result is represented by None so callers can distinguish it
         # directly from a catalog that returned one or more ordered matches.
@@ -341,7 +354,7 @@ def download_progress(
             image_format=image_format,
         ):
             pass
-    
+
     # for each chapter
     for i, chap in enumerate(comic.chapters):
         yield chap.title
@@ -436,7 +449,7 @@ def download_progress(
             chapter_progress.current = 0
             chapter_progress.progress = 0
             chapter_progress.total = 0
-        
+
         # check if every image was downloaded
         expected_count = len(processed_image_urls) if panel_size is None else None
         image_count = len([f for f in chapter_path.iterdir() if f.is_file()])
@@ -490,7 +503,7 @@ def download(
     progress: progress as a percentage
     total: total number of segments
     current: the last processed segment
-    
+
     Example:
     ```python
         main_progress, chapter_progress, thread = download(comic, progress_callback=lambda: None)

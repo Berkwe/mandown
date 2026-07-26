@@ -25,38 +25,9 @@ class NaverWebtoonSource(CommonSource):
 
     @classmethod
     def search(cls, title: str) -> list[SourceSearchResult]:
-        response = requests.get(
-            "https://comic.naver.com/api/search/all",
-            params={"keyword": title},
-            headers=cls.headers,
-            timeout=20,
-        )
-        response.raise_for_status()
-        rows = response.json().get("searchWebtoonResult", {}).get("searchViewList", [])
+        from ..search_naver import search
 
-        results: list[SourceSearchResult] = []
-        for row in rows:
-            title_id = row.get("titleId")
-            if not title_id:
-                continue
-            artists = row.get("communityArtists") or []
-            authors = tuple(
-                artist["name"]
-                for artist in artists
-                if isinstance(artist, dict) and artist.get("name")
-            )
-            results.append(
-                SourceSearchResult(
-                    title=row.get("titleName") or str(title_id),
-                    url=(
-                        "https://m.comic.naver.com/webtoon/list?"
-                        f"titleId={title_id}&sortOrder=ASC"
-                    ),
-                    authors=authors,
-                    cover_art=row.get("thumbnailUrl") or "",
-                )
-            )
-        return results
+        return search(title)
 
     def __init__(self, url: str) -> None:
         super().__init__(url)

@@ -1,93 +1,136 @@
 """
-Search for comic series across Naver Webtoon, WEBTOON, and MangaDex.
+Parallel orchestration for Naver, MangaDex, and AniList search.
 
-The public entry point is :func:`mandown.search`. It returns a
-:class:`SearchResults` mapping with one key for every supported catalog:
-
-.. code-block:: python
-
-    {
-        "naver": list[SearchItem] | None,
-        "webtoons": list[SearchItem] | None,
-        "mangadex": list[SearchItem] | None,
-    }
-
-Matches remain in the order returned by each catalog. A catalog maps to
-``None`` when it has no matches. Each :class:`SearchItem` contains lightweight
-search metadata such as ``title``, ``url``, ``authors``, and ``cover_art``.
-It does not fetch the full chapter list during the initial search.
-
-Access ``item.comic`` to query the selected URL and obtain a complete
-:class:`mandown.BaseComic`. The resulting comic is cached on that search item:
+Use :func:`search_all` as an async generator. Each provider runs in a worker
+thread so the existing synchronous HTTP clients can execute concurrently.
+WEBTOON matches are taken from AniList ``externalLinks`` instead of running a
+separate WEBTOON search. The WEBTOON search provider can be enabled as a
+fallback when AniList contains no WEBTOON links. Results are yielded as
+``(source, matches)`` tuples as soon as they become available:
 
 .. code-block:: python
 
-    results = mandown.search("solo leveling")
-    matches = results["mangadex"]
+    async for source, matches in mandown.search_all("tower of god"):
+        print(source, [match.title for match in matches])
 
-    if matches is not None:
-        first_match = matches[0]
-        print(first_match.title, first_match.url)
-        comic = first_match.comic
-
-Use ``results.asdict()`` to convert all lightweight results to plain Python
-dictionaries suitable for JSON serialization.
+The synchronous :func:`mandown.search` API remains available for callers that
+need a single dictionary result or a source filter.
 """
 
-from functools import cached_property
+import asyncio
+from collections.abc import AsyncIterator, Callable
 
-from .comic import BaseComic
+from . import search_anilist, search_mangadex, search_naver, search_webtoons
+from .search_common import SearchItem, SearchResults
 from .sources.base_source import SourceSearchResult
 
+SearchProvider = Callable[[str], list[SourceSearchResult]]
+SearchBatch = tuple[str, list[SearchItem]]
 
-class SearchItem:
+SEARCH_PROVIDERS: dict[str, SearchProvider] = {
+    "naver": search_naver.search,
+    "webtoons": search_webtoons.search,
+    "mangadex": search_mangadex.search,
+    "anilist": search_anilist.search,
+}
+
+
+def _webtoons_from_anilist(
+    matches: list[SourceSearchResult],
+) -> list[SourceSearchResult]:
+    results: list[SourceSearchResult] = []
+    seen_urls: set[str] = set()
+    for match in matches:
+        external_links = match.extra.get("externalLinks")
+        if not isinstance(external_links, list):
+            continue
+        for link in external_links:
+            if not isinstance(link, dict):
+                continue
+            site = link.get("site")
+            url = link.get("url")
+            if (
+                not isinstance(site, str)
+                or site.casefold() != "webtoon"
+                or not isinstance(url, str)
+                or not url
+                or url in seen_urls
+            ):
+                continue
+            seen_urls.add(url)
+            results.append(
+                SourceSearchResult(
+                    title=match.title,
+                    url=url,
+                    authors=match.authors,
+                    cover_art=match.cover_art,
+                    extra=dict(match.extra),
+                )
+            )
+    return results
+
+
+async def search_all(
+    query: str,
+    *,
+    webtoons_fallback: bool = False,
+) -> AsyncIterator[SearchBatch]:
     """
-    One lightweight series match.
+    Search providers concurrently and yield each completed batch.
 
-    ``title``, ``url``, ``authors``, and ``cover_art`` are available without
-    downloading the complete series. The first access to ``comic`` calls
-    :func:`mandown.query`; later accesses return the cached :class:`BaseComic`.
-    Use :meth:`asdict` when JSON-compatible search metadata is needed.
+    WEBTOON results are derived from AniList external links. The standalone
+    WEBTOON provider only runs when ``webtoons_fallback`` is true and AniList
+    returned no WEBTOON links.
+
+    :param query: Series title or search phrase.
+    :param webtoons_fallback: Search WEBTOON directly when AniList contains no
+        WEBTOON external links. Disabled by default.
+    :yields: ``(source, list[SearchItem])`` in provider completion order, with
+        the derived WEBTOON batch immediately following AniList.
+    :raises ValueError: If ``query`` is empty or contains only whitespace.
     """
+    normalized_query = query.strip() if query else ""
+    if not normalized_query:
+        raise ValueError("Search query cannot be empty.")
 
-    def __init__(self, source: str, result: SourceSearchResult):
-        self.source = source
-        self.title = result.title
-        self.url = result.url
-        self.authors = list(result.authors)
-        self.cover_art = result.cover_art
-        self.extra = dict(result.extra)
+    async def run_provider(
+        source: str,
+        provider: SearchProvider,
+    ) -> tuple[str, list[SourceSearchResult]]:
+        matches = await asyncio.to_thread(provider, normalized_query)
+        return source, matches
 
-    @cached_property
-    def comic(self) -> BaseComic:
-        from .api import query  # local import avoids api/search import cycle
+    has_anilist = "anilist" in SEARCH_PROVIDERS
+    tasks = [
+        asyncio.create_task(run_provider(source, provider))
+        for source, provider in SEARCH_PROVIDERS.items()
+        if source != "webtoons" or not has_anilist
+    ]
+    try:
+        for completed in asyncio.as_completed(tasks):
+            source, matches = await completed
+            yield source, [SearchItem(source, match) for match in matches]
+            if source == "anilist" and "webtoons" in SEARCH_PROVIDERS:
+                webtoons_matches = _webtoons_from_anilist(matches)
+                if not webtoons_matches and webtoons_fallback:
+                    webtoons_matches = await asyncio.to_thread(
+                        SEARCH_PROVIDERS["webtoons"],
+                        normalized_query,
+                    )
+                yield "webtoons", [
+                    SearchItem("webtoons", match) for match in webtoons_matches
+                ]
+    finally:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
 
-        return query(self.url)
 
-    def asdict(self) -> dict:
-        return {
-            "source": self.source,
-            "title": self.title,
-            "url": self.url,
-            "authors": self.authors,
-            "cover_art": self.cover_art,
-            "extra": self.extra,
-        }
-
-    def __repr__(self) -> str:
-        return f"SearchItem(source={self.source!r}, title={self.title!r}, url={self.url!r})"
-
-
-class SearchResults(dict[str, list[SearchItem] | None]):
-    """
-    Search matches keyed by ``naver``, ``webtoons``, and ``mangadex``.
-
-    A key maps to ``None`` when its catalog returned no matches. ``asdict()``
-    converts every lightweight match to plain Python dictionaries.
-    """
-
-    def asdict(self) -> dict[str, list[dict] | None]:
-        return {
-            source: None if matches is None else [match.asdict() for match in matches]
-            for source, matches in self.items()
-        }
+__all__ = [
+    "SEARCH_PROVIDERS",
+    "SearchBatch",
+    "SearchItem",
+    "SearchResults",
+    "search_all",
+]

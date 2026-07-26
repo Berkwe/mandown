@@ -23,7 +23,7 @@ from .processor import (
     Processor,
 )
 from .processor.profiles import SupportedProfiles, all_profiles
-from .search import SearchItem, SearchResults
+from .search import SearchItem, SearchResults, search_all
 
 __version__ = (1, 12, 2)
 __version_str__ = ".".join(map(str, __version__))
