@@ -41,8 +41,8 @@ if mangadex_matches:
 ### `mandown.search(title, source=None)`
 
 Searches Naver Webtoon, WEBTOON, and MangaDex by default. AniList is available
-with `source="anilist"`; `search_all()` performs concurrent search and derives
-its WEBTOON results from AniList.
+with `source="anilist"`; `search_all()` performs concurrent search and adds
+AniList URLs belonging to Naver, WEBTOON, or MangaDex to that source's results.
 
 Arguments:
 
@@ -64,7 +64,7 @@ Each `SearchItem` provides:
 - `source`: The source key.
 - `title`: The title shown by the source.
 - `url`: The series URL returned by the catalog. WEBTOON batches from
-  `search_all()` use the matching AniList external-link URL directly.
+  `search_all()` use the matching AniList result or external-link URL directly.
 - `authors`: Authors available in the search response.
 - `cover_art`: Cover URL when available.
 - `extra`: Source-specific metadata such as AniList IDs, titles, and external
@@ -118,9 +118,11 @@ AniList results use `type: MANGA` and `countryOfOrigin: "KR"`. Their
 ### `mandown.search_all(query, *, webtoons_fallback=False, retries=2)`
 
 Runs Naver, MangaDex, and AniList searches concurrently. It is an async
-generator and yields their batches in completion order. The `webtoons` batch
-is built directly from AniList external links whose `site` is `WEBTOON` and is
-yielded immediately after the `anilist` batch. The standalone WEBTOON search
+generator and yields their batches in completion order. URLs in an AniList
+result or its external links are classified by host and added to the matching
+`naver`, `webtoons`, or `mangadex` batch. This includes both Naver Webtoon and
+Naver Series URLs. A Naver or MangaDex search that finishes first waits for
+AniList so its batch can include these matches. The standalone WEBTOON search
 does not run by default.
 
 Set `webtoons_fallback=True` to run the standalone WEBTOON search only when
@@ -145,8 +147,8 @@ Yields:
 - `(source, list[SearchItem])`: One batch for each source. A batch list can be
   empty.
 
-AniList-derived WEBTOON items retain the AniList metadata in `item.extra` while
-using the WEBTOON external-link URL as `item.url`.
+AniList-derived source items retain the AniList metadata in `item.extra` while
+using the matching source URL as `item.url`.
 
 ```python
 import asyncio
@@ -161,10 +163,11 @@ async def show_results():
 asyncio.run(show_results())
 ```
 
-The Naver, MangaDex, and AniList completion order is intentionally not fixed;
-`webtoons` is the one ordering exception because it depends on AniList. If a
-provider still fails after its retries, results already completed by other
-providers remain yielded before that provider exception is raised.
+The Naver, MangaDex, and AniList completion order is intentionally not fixed.
+Naver and MangaDex batches may be held until AniList completes, and `webtoons`
+depends on AniList. If a provider still fails after its retries, results already
+completed by other providers remain yielded before that provider exception is
+raised.
 
 ### `mandown.query(url)`
 

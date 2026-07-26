@@ -26,8 +26,8 @@ if webtoons_results is not None:
     comic = match.comic
 ```
 
-For concurrent streaming search across Naver, MangaDex, and AniList, with
-WEBTOON results resolved from AniList external links:
+For concurrent search across Naver, MangaDex, and AniList, with supported
+Naver, WEBTOON, and MangaDex URLs from AniList merged into their source batch:
 
 ```python
 import asyncio
@@ -41,9 +41,10 @@ async def search_concurrently():
 asyncio.run(search_concurrently())
 ```
 
-The standalone WEBTOON search is disabled in this orchestrator by default. To
-use it only when AniList contains no `WEBTOON` external link, call
-`mandown.search_all("solo leveling", webtoons_fallback=True)`.
+Naver and MangaDex batches that finish before AniList wait so they can include
+its matching URLs. The standalone WEBTOON search is disabled in this
+orchestrator by default. To use it only when AniList contains no WEBTOON URL,
+call `mandown.search_all("solo leveling", webtoons_fallback=True)`.
 
 The synchronous `search()` mapping uses a list of lightweight `SearchItem`
 objects or `None` for each site. Every `search_all()` batch instead contains a
@@ -54,4 +55,4 @@ adapter raise `ValueError`. Search data can be serialized with
 
 The synchronous default keeps AniList as `None`; use `source="anilist"` for
 only AniList, or `search_all()` for concurrent search with AniList-derived
-WEBTOON results.
+source results.

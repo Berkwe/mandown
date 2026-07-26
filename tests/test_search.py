@@ -295,6 +295,76 @@ def test_search_all_uses_anilist_webtoon_external_links(
     assert webtoon.extra["anilist_id"] == 85143
 
 
+def test_search_all_adds_anilist_urls_to_supported_source_results(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    search_module = importlib.import_module("mandown.search")
+
+    monkeypatch.setattr(
+        search_module,
+        "SEARCH_PROVIDERS",
+        {
+            "naver": lambda query: [],
+            "mangadex": lambda query: [
+                SourceSearchResult(
+                    "Existing MangaDex match",
+                    "https://mangadex.org/title/existing",
+                )
+            ],
+            "webtoons": lambda query: pytest.fail(
+                "WEBTOON fallback should not run"
+            ),
+            "anilist": lambda query: [
+                SourceSearchResult(
+                    "무사만리행",
+                    "https://series.naver.com/comic/detail.nhn?productNo=5173965",
+                    extra={
+                        "anilist_id": 123,
+                        "externalLinks": [
+                            {
+                                "site": "MangaDex",
+                                "url": "https://mangadex.org/title/existing",
+                            },
+                            {
+                                "site": "MangaDex",
+                                "url": "https://mangadex.org/title/from-anilist",
+                            },
+                            {
+                                "site": "WEBTOON",
+                                "url": (
+                                    "https://www.webtoons.com/en/action/example/"
+                                    "list?title_no=42"
+                                ),
+                            },
+                        ],
+                    },
+                )
+            ],
+        },
+    )
+
+    async def collect_results() -> dict[str, list[SearchItem]]:
+        return {
+            source: matches
+            async for source, matches in search_module.search_all("the long way")
+        }
+
+    results = asyncio.run(collect_results())
+
+    assert [match.url for match in results["naver"]] == [
+        "https://series.naver.com/comic/detail.nhn?productNo=5173965"
+    ]
+    assert [match.url for match in results["mangadex"]] == [
+        "https://mangadex.org/title/existing",
+        "https://mangadex.org/title/from-anilist",
+    ]
+    assert [match.url for match in results["webtoons"]] == [
+        "https://www.webtoons.com/en/action/example/list?title_no=42"
+    ]
+    assert results["naver"][0].source == "naver"
+    assert results["naver"][0].extra["anilist_id"] == 123
+
+
 def test_search_all_webtoons_fallback_is_opt_in(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
