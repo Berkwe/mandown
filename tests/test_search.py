@@ -107,6 +107,56 @@ def test_mangadex_search_parses_api_results(monkeypatch: pytest.MonkeyPatch) -> 
     ]
 
 
+def test_mangadex_search_skips_malformed_api_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    data = {
+        "data": [
+            None,
+            [],
+            {"attributes": {"title": {"en": "Missing ID"}}},
+            {"id": 123, "attributes": {"title": {"en": "Wrong ID"}}},
+            {
+                "id": "fallback-id",
+                "attributes": {"title": []},
+                "relationships": {},
+            },
+            {
+                "id": "partial-id",
+                "attributes": [],
+                "relationships": [
+                    None,
+                    {"type": "author", "attributes": []},
+                    {"type": "artist", "attributes": {"name": 42}},
+                    {"type": "cover_art", "attributes": {"fileName": []}},
+                ],
+            },
+        ]
+    }
+    monkeypatch.setattr(MangaDexSource, "_get", lambda url: FakeResponse(data=data))
+
+    assert MangaDexSource.search("Example Manga") == [
+        SourceSearchResult(
+            "fallback-id",
+            "https://mangadex.org/title/fallback-id",
+        ),
+        SourceSearchResult(
+            "partial-id",
+            "https://mangadex.org/title/partial-id",
+        ),
+    ]
+
+
+@pytest.mark.parametrize("data", [{"data": []}, {"data": {}}, {"data": None}])
+def test_mangadex_search_treats_non_array_data_as_empty(
+    monkeypatch: pytest.MonkeyPatch,
+    data: dict,
+) -> None:
+    monkeypatch.setattr(MangaDexSource, "_get", lambda url: FakeResponse(data=data))
+
+    assert MangaDexSource.search("Example Manga") == []
+
+
 def test_search_returns_none_for_empty_catalog_and_lazy_comic(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

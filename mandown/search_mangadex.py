@@ -8,30 +8,44 @@ from .sources.source_mangadex import MangaDexSource
 
 def search(query: str) -> list[SourceSearchResult]:
     """Search MangaDex and return lightweight series results."""
-    response = MangaDexSource._get(
+    api_url = (
         "https://api.mangadex.org/manga"
         f"?title={requests.utils.quote(query)}"
         "&limit=20&includes[]=author&includes[]=artist&includes[]=cover_art"
         "&order[relevance]=desc"
     )
+    response = MangaDexSource._get(api_url)
+    payload = MangaDexSource._json_object(response, api_url)
     results: list[SourceSearchResult] = []
-    for manga in response.json().get("data", []):
-        manga_id = manga["id"]
-        attributes = manga.get("attributes", {})
-        titles = attributes.get("title") or {}
+    for manga in MangaDexSource._sequence(payload.get("data")):
+        if not isinstance(manga, dict):
+            continue
+        manga_id = manga.get("id")
+        if not isinstance(manga_id, str) or not manga_id:
+            continue
+        attributes = MangaDexSource._mapping(manga.get("attributes"))
+        titles = MangaDexSource._mapping(attributes.get("title"))
         display_title = titles.get("en") or next(iter(titles.values()), manga_id)
+        if not isinstance(display_title, str) or not display_title:
+            display_title = manga_id
         authors: list[str] = []
         cover_art = ""
-        for relationship in manga.get("relationships", []):
+        for relationship in MangaDexSource._sequence(manga.get("relationships")):
+            if not isinstance(relationship, dict):
+                continue
             relation_type = relationship.get("type")
-            relation_attributes = relationship.get("attributes") or {}
+            relation_attributes = MangaDexSource._mapping(relationship.get("attributes"))
             if relation_type in {"author", "artist"} and relation_attributes.get("name"):
-                if relation_attributes["name"] not in authors:
-                    authors.append(relation_attributes["name"])
-            elif relation_type == "cover_art" and relation_attributes.get("fileName"):
+                name = relation_attributes["name"]
+                if isinstance(name, str) and name not in authors:
+                    authors.append(name)
+            elif relation_type == "cover_art":
+                file_name = relation_attributes.get("fileName")
+                if not isinstance(file_name, str) or not file_name:
+                    continue
                 cover_art = (
                     f"https://uploads.mangadex.org/covers/{manga_id}/"
-                    f"{relation_attributes['fileName']}"
+                    f"{file_name}"
                 )
         results.append(
             SourceSearchResult(
