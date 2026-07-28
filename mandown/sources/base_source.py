@@ -1,7 +1,20 @@
 from collections import defaultdict
+from dataclasses import dataclass, field
 from typing import final
 
 from ..base import BaseChapter, BaseMetadata
+
+
+@dataclass(frozen=True)
+class SourceSearchResult:
+    """Lightweight search data returned by a source without fetching chapters."""
+
+    title: str
+    url: str
+    authors: tuple[str, ...] = ()
+    cover_art: str = ""
+    extra: dict = field(default_factory=dict)
+    identifiers: dict[str, int | str | None] = field(default_factory=dict)
 
 
 class BaseSource:

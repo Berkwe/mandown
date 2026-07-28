@@ -14,6 +14,9 @@ Mandown is a comic downloader and a CBZ, EPUB, MOBI, and/or PDF converter. It al
 - Download comics from [supported sites](#supported-sites)
   - Supports downloading a range of chapters
   - Supports multithreaded downloading
+- Search manga metadata through AniList
+  - Lightweight cards, paginated results, and on-demand details
+  - Resolver-ready MangaDex, WEBTOON, and Naver external links
 - Process downloaded images
   - Rotate or split double-page spreads
   - Trim borders
@@ -29,6 +32,17 @@ Run `mandown --help` or see the [docs](/docs/) for more information and examples
 ```
 mandown get <URL>
 ```
+
+Search AniList when you do not already know a supported series URL:
+
+```
+mandown search "Solo Leveling"
+mandown search "Solo Leveling" --details --external-links
+```
+
+The CLI returns 10 results by default and accepts `--page` and `--limit`.
+Mandown caps the CLI limit at 25 as a performance choice; the Python client can
+use AniList's full `Page.perPage` range through 50.
 
 To convert the downloaded contents to CBZ/EPUB/MOBI/PDF, append the `--convert` option. To apply image processing to the downloaded images, append the `--process` option.
 
@@ -104,7 +118,34 @@ To request a new site, please file a [new issue](https://github.com/potatoeggy/m
 
 ## Basic library usage
 
-See the [docs](/docs/) for more information and examples.
+See the [Python API guide](/docs/python_api.md) for the main functions,
+arguments, return values, and examples. The [topic guides](/docs/) contain
+more information about downloading, processing, and conversion.
+
+Search AniList, load details only for the selected result, and pass a supported
+external URL to Mandown's existing resolver:
+
+```python
+import asyncio
+import mandown
+
+
+async def find_download_url():
+    async with mandown.AniListClient() as client:
+        results = await client.search_manga("Solo Leveling")
+        details = await client.get_manga(results.items[0].id)
+        sources = client.extract_supported_sources(details.external_links)
+        return sources[0].url if sources else None
+
+
+download_url = asyncio.run(find_download_url())
+if download_url:
+    mandown.download(download_url, "./downloads")
+```
+
+AniList is the only active title-search source. Direct URL querying and
+downloading for MangaDex, WEBTOON, Naver Webtoon, and the other supported sites
+continues to work normally.
 
 To just download the images:
 

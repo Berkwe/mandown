@@ -1,5 +1,33 @@
-import mandown, time, os
+import asyncio
+import time
 
+import mandown
+
+
+async def main() -> None:
+    for query in ["shadow slave"]:
+        print(f"\n=== {query} ===")
+        start = time.perf_counter()
+        async with mandown.AniListClient() as client:
+            response = await client.search_manga(
+                query,
+                include_details=True,
+                include_external_links=True,
+            )
+            elapsed = time.perf_counter() - start
+            print(f"\n[AniList] {len(response.items)} sonuç ({elapsed:.2f}s)")
+            for index, manga in enumerate(response.items, 1):
+                print(f"\n  Sonuç {index}: {manga.title.english or manga.title.romaji}")
+                if isinstance(manga, mandown.AniListManga):
+                    for source in client.extract_supported_sources(manga.external_links):
+                        print(f"    {source.provider}: {source.url}")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+
+
+"""
 url = (
     "https://m.comic.naver.com/webtoon/list?titleId=746857&week=thu&sortOrder=ASC"
 )
@@ -26,3 +54,4 @@ if __name__ == '__main__':
             panel_size=(1200, 800),
             image_format="jpg",
         )
+"""

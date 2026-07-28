@@ -1,8 +1,8 @@
 # pylint: disable=invalid-name
 
-from pathlib import Path
 import shutil
 import threading
+from pathlib import Path
 from typing import Callable, Iterator
 
 import comicon
@@ -13,6 +13,8 @@ from .comic import BaseComic
 from .convert_utils import ConvertFormats, convert_one
 from .errors import ChapterImageCountMismatchError, ImageDownloadError
 from .processor import ProcessConfig, ProcessOps, Processor
+from .search import SearchResults
+from .search import search as _deprecated_search
 
 
 def query(url: str) -> BaseComic:
@@ -23,6 +25,15 @@ def query(url: str) -> BaseComic:
     """
     adapter = sources.get_class_for(url)(url)
     return BaseComic(adapter.metadata, adapter.chapters)
+
+
+def search(title: str, source: str | None = None) -> SearchResults:
+    """
+    Deprecated synchronous AniList search preserving the old result mapping.
+
+    New async callers should use :class:`mandown.AniListClient`.
+    """
+    return _deprecated_search(title, source)
 
 
 def load(path: Path | str) -> BaseComic:
@@ -295,7 +306,7 @@ def download_progress(
             image_format=image_format,
         ):
             pass
-    
+
     # for each chapter
     for i, chap in enumerate(comic.chapters):
         yield chap.title
@@ -390,7 +401,7 @@ def download_progress(
             chapter_progress.current = 0
             chapter_progress.progress = 0
             chapter_progress.total = 0
-        
+
         # check if every image was downloaded
         expected_count = len(processed_image_urls) if panel_size is None else None
         image_count = len([f for f in chapter_path.iterdir() if f.is_file()])
@@ -444,7 +455,7 @@ def download(
     progress: progress as a percentage
     total: total number of segments
     current: the last processed segment
-    
+
     Example:
     ```python
         main_progress, chapter_progress, thread = download(comic, progress_callback=lambda: None)

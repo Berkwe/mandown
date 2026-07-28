@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import asyncio
 from pathlib import Path
 from typing import cast
 
@@ -7,7 +8,11 @@ import comicon
 import typer
 
 from . import (
+    DEFAULT_PER_PAGE,
+    MANDOWN_PER_PAGE_LIMIT,
     MD_METADATA_FILE,
+    AniListClient,
+    AniListManga,
     BaseChapter,
     BaseComic,
     BaseMetadata,
@@ -21,7 +26,7 @@ from . import (
     api,
     sources,
 )
-from .errors import ImageDownloadError
+from .errors import AniListError, ImageDownloadError
 
 app = typer.Typer()
 
@@ -142,6 +147,96 @@ def cli_query(url: str) -> BaseComic:
         typer.secho("Could not match URL with available sources.", fg=typer.colors.RED)
         raise typer.Exit(1) from err
     return comic
+
+
+@app.command(name="search")
+def search_command(
+    query: str = typer.Argument(..., help="Manga title or general AniList search phrase."),
+    page: int = typer.Option(1, "--page", help="AniList result page, starting at 1."),
+    limit: int = typer.Option(
+        DEFAULT_PER_PAGE,
+        "--limit",
+        help=(
+            f"Results per page. Mandown CLI limit: {MANDOWN_PER_PAGE_LIMIT}; "
+            "AniList API limit: 50."
+        ),
+    ),
+    details: bool = typer.Option(
+        False,
+        "--details",
+        help="Include description, chapters, volumes, genres, and external links.",
+    ),
+    external_links: bool = typer.Option(
+        False,
+        "--external-links",
+        help="Include AniList external links and resolver-ready Mandown sources.",
+    ),
+) -> None:
+    """Search AniList for manga metadata."""
+
+    if not 1 <= limit <= MANDOWN_PER_PAGE_LIMIT:
+        raise typer.BadParameter(
+            f"--limit must be between 1 and {MANDOWN_PER_PAGE_LIMIT}. "
+            "This is Mandown's CLI performance limit; AniList itself permits 50.",
+            param_hint="--limit",
+        )
+    if page < 1:
+        raise typer.BadParameter("--page must be greater than or equal to 1.", param_hint="--page")
+
+    async def run_search() -> None:
+        async with AniListClient() as client:
+            response = await client.search_manga(
+                query,
+                page=page,
+                per_page=limit,
+                include_details=details,
+                include_external_links=True if external_links or details else None,
+                include_description=True if details else None,
+            )
+            for manga in response.items:
+                title = (
+                    manga.title.english
+                    or manga.title.romaji
+                    or manga.title.native
+                    or f"AniList #{manga.id}"
+                )
+                typer.echo(f"[{manga.id}] {title}")
+                typer.echo(
+                    f"  format={manga.format or '-'} status={manga.status or '-'} "
+                    f"score={manga.average_score if manga.average_score is not None else '-'}"
+                )
+                if manga.site_url:
+                    typer.echo(f"  {manga.site_url}")
+                if details and isinstance(manga, AniListManga):
+                    typer.echo(
+                        f"  chapters={manga.chapters if manga.chapters is not None else '-'} "
+                        f"volumes={manga.volumes if manga.volumes is not None else '-'}"
+                    )
+                    if manga.genres:
+                        typer.echo(f"  genres={', '.join(manga.genres)}")
+                    if manga.description:
+                        typer.echo(f"  description={manga.description}")
+                if (external_links or details) and isinstance(manga, AniListManga):
+                    for link in manga.external_links:
+                        disabled = " disabled" if link.is_disabled else ""
+                        typer.echo(
+                            f"  external[{link.type or 'UNKNOWN'}]{disabled}: "
+                            f"{link.site} {link.url}"
+                        )
+                    for source in client.extract_supported_sources(manga.external_links):
+                        typer.echo(
+                            f"  source[{source.provider}/{source.language or '-'}]: {source.url}"
+                        )
+            typer.echo(
+                f"Page {response.page_info.current_page or page}; "
+                f"has_next={response.page_info.has_next_page}"
+            )
+
+    try:
+        asyncio.run(run_search())
+    except (AniListError, ValueError) as error:
+        typer.secho(f"AniList search failed: {error}", fg=typer.colors.RED)
+        raise typer.Exit(1) from error
 
 
 def cli_convert(
@@ -567,7 +662,7 @@ def callback(
 
 
 def main() -> None:
-    app()
+    app(prog_name="mandown")
 
 
 if __name__ == "__main__":

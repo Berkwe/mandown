@@ -4,6 +4,7 @@ Generate mainwin.py while in mandown/ui/ with
 `uic -g python -o mainwin.py form.ui`
 """
 
+import asyncio
 import sys
 from pathlib import Path
 
@@ -13,7 +14,9 @@ from PySide6.QtGui import QImage, QPixmap
 import mandown
 
 from .. import __version_str__
+from ..anilist import AniListClient, AniListManga
 from ..comic import BaseComic
+from ..errors import AniListError
 from .mainwin import Ui_Widget
 
 from PySide6.QtWidgets import (  # isort: skip
@@ -125,16 +128,45 @@ class MandownQtUi(QWidget):
             )
 
     def hook_from_url(self) -> None:
-        active_url = self.ui.text_source.text()
+        active_input = self.ui.text_source.text().strip()
         try:
-            comic = mandown.query(active_url)
-        except ValueError:
+            if active_input.startswith(("http://", "https://")):
+                comic = mandown.query(active_input)
+            else:
+                async def resolve_supported_url() -> str:
+                    async with AniListClient() as client:
+                        response = await client.search_manga(
+                            active_input,
+                            include_external_links=True,
+                        )
+                        for manga in response.items:
+                            if not isinstance(manga, AniListManga):
+                                continue
+                            sources = client.extract_supported_sources(manga.external_links)
+                            if sources:
+                                return sources[0].url
+                        if response.items:
+                            raise ValueError(
+                                "AniList metadata found, but no supported download source exists."
+                            )
+                        raise ValueError("No AniList search results found.")
+
+                source_url = asyncio.run(resolve_supported_url())
+                comic = mandown.query(source_url)
+                self.ui.text_source.setText(source_url)
+        except (AniListError, ValueError, requests.RequestException, RuntimeError) as error:
+            message = (
+                "AniList found metadata, but none of its links can be downloaded by Mandown."
+                if "no supported download source" in str(error)
+                else "Could not find a matching comic."
+            )
             res = QMessageBox.critical(
                 self,
                 "Unknown Comic",
-                "Could not find comic: URL did not match any sources.",
+                message,
                 QMessageBox.Ok,
             )
+            return
         self.comic = comic
 
     def hook_set_dest(self) -> None:
