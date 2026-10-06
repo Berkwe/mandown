@@ -5,6 +5,11 @@ description = "Comic/manga/webtoon downloader and CBZ/EPUB/MOBI/PDF converter"
 authors = ["potatoeggy <eggyrules@gmail.com>"]
 license = "AGPL-3.0-only"
 readme = "README.md"
+exclude = [
+    "mandown/search_ui.py", "tests", "test_*.py", "benchmark_search.py",
+    "optimize_jev.py", "evaluate_jev_50.py", "jev_*.json", "jev_*_results",
+    "search_benchmark_results", "search_logs", ".implementation_evidence", ".env*",
+]
 repository = "https://github.com/potatoeggy/mandown"
 documentation = "https://github.com/potatoeggy/mandown"
 keywords = ["manga", "comic", "downloader", "download", "webtoons", "webtoon"]

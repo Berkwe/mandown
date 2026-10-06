@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import asyncio
+import json
 from pathlib import Path
 from typing import cast
 
@@ -24,9 +25,11 @@ from . import (
     __version_str__,
     all_profiles,
     api,
+    search_sources,
     sources,
 )
 from .errors import AniListError, ImageDownloadError
+from .jev import DEFAULT_THRESHOLD, jev_api_keys
 
 app = typer.Typer()
 
@@ -157,8 +160,7 @@ def search_command(
         DEFAULT_PER_PAGE,
         "--limit",
         help=(
-            f"Results per page. Mandown CLI limit: {MANDOWN_PER_PAGE_LIMIT}; "
-            "AniList API limit: 50."
+            f"Results per page. Mandown CLI limit: {MANDOWN_PER_PAGE_LIMIT}; AniList API limit: 50."
         ),
     ),
     details: bool = typer.Option(
@@ -237,6 +239,48 @@ def search_command(
     except (AniListError, ValueError) as error:
         typer.secho(f"AniList search failed: {error}", fg=typer.colors.RED)
         raise typer.Exit(1) from error
+
+
+@app.command(name="sources")
+def sources_command(
+    anilist_id: int = typer.Argument(..., help="AniList manga ID selected from search results."),
+    threshold: float = typer.Option(
+        DEFAULT_THRESHOLD, "--threshold", help="JEV percentage threshold, 0–100."
+    ),
+    candidate_limit: int = typer.Option(
+        3, "--candidate-limit", help="New JEV candidates per search phase."
+    ),
+    json_output: bool = typer.Option(
+        False, "--json", help="Print merged sources and diagnostics as JSON."
+    ),
+) -> None:
+    """Resolve source links for a selected AniList manga without fetching chapters."""
+    try:
+        result = asyncio.run(
+            search_sources(anilist_id, threshold=threshold, candidate_limit=candidate_limit)
+        )
+    except (AniListError, ValueError) as error:
+        message = str(error)
+        for key in jev_api_keys():
+            message = message.replace(key, "[REDACTED]")
+        typer.secho(f"Source discovery failed: {message}", fg=typer.colors.RED)
+        raise typer.Exit(1) from error
+    if json_output:
+        typer.echo(json.dumps(result.asdict(), ensure_ascii=False, allow_nan=False))
+        return
+    typer.echo(f"[{anilist_id}] {result.item.title} (threshold={result.threshold:g}%)")
+    for provider in result.providers:
+        typer.echo(f"  {provider.provider}: {provider.resolution}")
+        for link in provider.links:
+            typer.echo(f"    [{link.language or '-'}] {link.url} ({link.method})")
+    for event in result.events:
+        if event["decision"] == "SAME_IDENTIFIER":
+            typer.echo(f"  {event['message']}: {', '.join(event['evidence'])}")
+    for error in result.errors:
+        typer.echo(
+            f"  error[{error['provider']}]: {error.get('error') or error['message']}", err=True
+        )
+    typer.echo(f"  elapsed={result.timings['total_seconds']:.3f}s")
 
 
 def cli_convert(

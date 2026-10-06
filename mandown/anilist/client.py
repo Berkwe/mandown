@@ -21,6 +21,7 @@ from ..sources import get_class_for
 from .fields import AniListField, AniListFieldSet
 from .models import (
     AniListCoverImage,
+    AniListCreator,
     AniListExternalLink,
     AniListGraphQLError,
     AniListManga,
@@ -151,6 +152,8 @@ class AniListClient:
                 AniListField.VOLUMES,
                 AniListField.GENRES,
                 AniListField.EXTERNAL_LINKS,
+                AniListField.START_DATE,
+                AniListField.STAFF,
             }
         )
         items = tuple(
@@ -356,7 +359,45 @@ class AniListClient:
             volumes=_optional_int(value.get("volumes")),
             genres=_string_tuple(value.get("genres")),
             external_links=self._parse_external_links(value.get("externalLinks")),
+            start_year=self._parse_start_year(value.get("startDate")),
+            creators=self._parse_creators(value.get("staff")),
         )
+
+    @staticmethod
+    def _parse_start_year(value: Any) -> int | None:
+        if not isinstance(value, Mapping):
+            return None
+        year = _optional_int(value.get("year"))
+        return year if year is not None and year > 0 else None
+
+    @staticmethod
+    def _parse_creators(value: Any) -> tuple[AniListCreator, ...]:
+        if value is None:
+            return ()
+        if not isinstance(value, Mapping):
+            raise AniListResponseError("AniList staff is not an object.")
+        raw_edges = value.get("edges")
+        if not isinstance(raw_edges, list):
+            raise AniListResponseError("AniList staff.edges is not an array.")
+        creators: list[AniListCreator] = []
+        for edge in raw_edges:
+            if not isinstance(edge, Mapping):
+                continue
+            node = edge.get("node")
+            if not isinstance(node, Mapping):
+                continue
+            raw_name = node.get("name")
+            name = raw_name if isinstance(raw_name, Mapping) else {}
+            creators.append(
+                AniListCreator(
+                    id=_optional_int(node.get("id")),
+                    role=_optional_string(edge.get("role")),
+                    full_name=_optional_string(name.get("full")),
+                    native_name=_optional_string(name.get("native")),
+                    alternative_names=_string_tuple(name.get("alternative")),
+                )
+            )
+        return tuple(creators)
 
     @staticmethod
     def _parse_external_links(value: Any) -> tuple[AniListExternalLink, ...]:

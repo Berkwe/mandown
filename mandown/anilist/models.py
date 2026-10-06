@@ -29,6 +29,25 @@ class AniListExternalLink:
 
 
 @dataclass(frozen=True, slots=True)
+class AniListCreator:
+    id: int | None = None
+    role: str | None = None
+    full_name: str | None = None
+    native_name: str | None = None
+    alternative_names: tuple[str, ...] = ()
+
+    @property
+    def names(self) -> tuple[str, ...]:
+        return tuple(
+            dict.fromkeys(
+                name
+                for name in (self.full_name, self.native_name, *self.alternative_names)
+                if name
+            )
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class AniListMangaSummary:
     id: int
     id_mal: int | None = None
@@ -50,6 +69,8 @@ class AniListManga(AniListMangaSummary):
     volumes: int | None = None
     genres: tuple[str, ...] = ()
     external_links: tuple[AniListExternalLink, ...] = ()
+    start_year: int | None = None
+    creators: tuple[AniListCreator, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

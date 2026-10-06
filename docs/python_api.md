@@ -51,7 +51,7 @@ if source_url:
 
 ## AniList search and querying
 
-AniList is Mandown's only active title-search and metadata source. The primary
+AniList is Mandown's first-stage title-search and metadata source. The primary
 API is async and keeps one HTTP session for the lifetime of the client:
 
 ```python
@@ -565,3 +565,49 @@ async def safe_search(user_text):
     except mandown.AniListError as error:
         print("AniList search failed:", error)
 ```
+
+### `search_sources(anilist_id, *, threshold=54.0, candidate_limit=3)`
+
+An async second-stage API, exported from `mandown`, for one user-selected
+positive AniList manga ID. It fetches `AniListFieldSet.MATCHING`, trusts active
+supported external links, and searches only missing MangaDex/Naver/WEBTOON
+catalogs. Shared AniList/MAL identifiers bypass JEV with explicit log evidence;
+only unresolved candidates are sent to JEV. Naver/WEBTOON never run title search;
+only MangaDex currently uses the progressive English/romaji → alternative-title flow.
+
+- `threshold`: finite percentage in 0–100, inclusive. Scores equal to the threshold pass.
+- `candidate_limit`: positive integer; maximum new JEV candidates **per phase** per missing provider.
+  Default 3 allows at most 6 across primary and fallback phases; candidates are never repeated.
+- Invalid options raise `ValueError` before network requests. AniList failures
+  raise the existing AniList errors. Individual source/JEV failures return diagnostics.
+- Returns `SourceSearchResponse`: `item` (merged `SearchItem`), `threshold`,
+  `providers`, `events`, `errors`, `timings`, and flattened `links`. `asdict()` serializes it.
+- Each `ProviderResolution` carries its `resolution`, `links`, `searches`,
+  ranked `candidates`, and `comparisons`. Methods include `SAME_DIRECT_LINK`,
+  `SAME_IDENTIFIER`, `SAME_JEV`, `SKIPPED_EXTERNAL_ONLY`, and `NOT_RESOLVED`.
+- `SourceLink` retains `provider`, `url`, `language`, `method`,
+  `metadata_status`, and `metadata_error`. All direct-link languages are retained;
+  `item.urls` keeps one primary URL per provider. Naver Series links use the
+  Naver provider group while preserving their original URL. Trusted direct links
+  and exact-ID matches use `metadata_status="not_fetched"`; search never retrieves chapters.
+
+```python
+import asyncio
+import mandown
+
+async def main():
+    resolved = await mandown.search_sources(86640, threshold=54.0, candidate_limit=3)
+    print(resolved.asdict())
+
+asyncio.run(main())
+```
+
+See [two-stage source discovery](library_querying.md#two-stage-source-discovery)
+for calibration provenance, credential setup, CLI usage, and timing logs.
+
+### CLI source discovery
+
+`mandown sources <anilist_id> [--threshold 54] [--candidate-limit 3] [--json]`
+uses the same async source-discovery API. `--json` emits the merged result,
+provider decisions, timing data and errors as one JSON object. Without it,
+links and resolution methods are printed in a human-readable format.

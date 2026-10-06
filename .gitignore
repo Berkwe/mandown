@@ -130,3 +130,24 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Local-only experiments, tests and private runtime artifacts
+/tests/
+/test_*.py
+/test_*/
+/optimize_jev.py
+/evaluate_jev_50.py
+/benchmark_search.py
+/jev_*.json
+/jev_*_results/
+/search_benchmark_results/
+/search_logs/
+/.implementation_evidence/
+/mandown/search_ui.py
+.env.*
+*.pem
+*.key
+/id_rsa*
+/id_ed25519*
+/private/
+/secrets/

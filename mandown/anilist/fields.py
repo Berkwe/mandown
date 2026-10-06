@@ -22,6 +22,8 @@ class AniListField(str, Enum):
     VOLUMES = "volumes"
     GENRES = "genres"
     EXTERNAL_LINKS = "externalLinks"
+    START_DATE = "startDate"
+    STAFF = "staff"
 
 
 FIELD_FRAGMENTS: dict[AniListField, str] = {
@@ -43,6 +45,11 @@ FIELD_FRAGMENTS: dict[AniListField, str] = {
     AniListField.EXTERNAL_LINKS: (
         "externalLinks { site url type language isDisabled notes }"
     ),
+    AniListField.START_DATE: "startDate { year }",
+    AniListField.STAFF: (
+        "staff(perPage: 25, sort: [RELEVANCE, ID]) { "
+        "edges { role node { id name { full native alternative } } } }"
+    ),
 }
 
 
@@ -55,6 +62,7 @@ class AniListFieldSet:
     LIGHT: ClassVar["AniListFieldSet"]
     CARD: ClassVar["AniListFieldSet"]
     DETAIL: ClassVar["AniListFieldSet"]
+    MATCHING: ClassVar["AniListFieldSet"]
     FULL: ClassVar["AniListFieldSet"]
 
     def __init__(self, values=()):
@@ -97,5 +105,9 @@ AniListFieldSet.DETAIL = AniListFieldSet.CARD.with_fields(
     AniListField.VOLUMES,
     AniListField.GENRES,
     AniListField.EXTERNAL_LINKS,
+)
+AniListFieldSet.MATCHING = AniListFieldSet.DETAIL.with_fields(
+    AniListField.START_DATE,
+    AniListField.STAFF,
 )
 AniListFieldSet.FULL = AniListFieldSet.DETAIL

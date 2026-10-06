@@ -5,6 +5,7 @@ from .anilist import (
     MANDOWN_PER_PAGE_LIMIT,
     AniListClient,
     AniListCoverImage,
+    AniListCreator,
     AniListExternalLink,
     AniListField,
     AniListFieldSet,
@@ -52,6 +53,12 @@ from .processor import (
 )
 from .processor.profiles import SupportedProfiles, all_profiles
 from .search import SearchItem, SearchResults, search_all
+from .source_search import (
+    ProviderResolution,
+    SourceLink,
+    SourceSearchResponse,
+    search_sources,
+)
 
 __version__ = (1, 12, 2)
 __version_str__ = ".".join(map(str, __version__))

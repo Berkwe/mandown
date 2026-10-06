@@ -143,7 +143,11 @@ if download_url:
     mandown.download(download_url, "./downloads")
 ```
 
-AniList is the only active title-search source. Direct URL querying and
+AniList supplies the first-stage title list. After selecting an ID,
+`await mandown.search_sources(id, threshold=54.0)` discovers and merges
+missing MangaDex sources using identifiers and JEV. WEBTOON and Naver links
+are accepted only from AniList external links, without additional requests.
+Direct URL querying and
 downloading for MangaDex, WEBTOON, Naver Webtoon, and the other supported sites
 continues to work normally.
 
@@ -164,3 +168,17 @@ comic = mandown.query("https://comic-site.com/the-best-comic")
 mandown.download(comic)
 mandown.convert(comic, title=comic.metadata.title, to="epub")
 ```
+
+### Discover sources for a selected manga
+
+```bash
+mandown search "Solo Leveling"
+mandown sources 105398
+mandown sources 105398 --threshold 54 --candidate-limit 3 --json
+```
+
+The second command trusts AniList external links and searches MangaDex only when
+its link is missing. Naver/WEBTOON are external-link-only. Set
+`JEVMODEL_API_KEY` (and optional fallback keys) in the environment for uncertain
+JEV candidates; direct links and exact identity matches need no key.
+See [the source discovery API](docs/python_api.md#search_sourcesanilist_id--threshold540-candidate_limit3).

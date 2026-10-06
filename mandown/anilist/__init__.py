@@ -11,6 +11,7 @@ from .client import (
 from .fields import AniListField, AniListFieldSet
 from .models import (
     AniListCoverImage,
+    AniListCreator,
     AniListExternalLink,
     AniListGraphQLError,
     AniListManga,
@@ -28,6 +29,7 @@ __all__ = [
     "MANDOWN_PER_PAGE_LIMIT",
     "AniListClient",
     "AniListCoverImage",
+    "AniListCreator",
     "AniListExternalLink",
     "AniListField",
     "AniListFieldSet",
