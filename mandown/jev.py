@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
+import sqlite3
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,6 +15,7 @@ from typing import Any, Callable
 import requests
 
 from . import sources
+from .jev_cache import JevCache, comparison_lock, default_cache
 from .sources.base_source import SourceSearchResult
 
 # AniList-anchored run 20260928_133031_887036, recommended.threshold (not runtime 45).
@@ -162,7 +165,7 @@ def _error_message(response: requests.Response) -> str:
     return response.text[:500] or f"HTTP {response.status_code}"
 
 
-def call_jev(
+def _call_jev_uncached(
     left: dict[str, Any],
     right: dict[str, Any],
     api_key: str | list[str],
@@ -273,3 +276,92 @@ def call_jev(
             "record_a": state["record_a"],
             "record_b": state["record_b"],
         }
+
+
+def call_jev(
+    left: dict[str, Any],
+    right: dict[str, Any],
+    api_key: str | list[str],
+    threshold: float,
+    *,
+    instructions: str = MATCH_INSTRUCTIONS,
+    session: Any = requests,
+    sleep: Callable[[float], None] = time.sleep,
+    max_retries: int = 3,
+    key_state: dict[str, int] | None = None,
+    cache: JevCache | bool | None = None,
+) -> dict[str, Any]:
+    """Reuse successful scores before checking credentials; reevaluate the threshold.
+
+    ``cache=None`` uses the persistent default, ``False`` bypasses it. Increment
+    MANDOWN_JEV_CACHE_REVISION when the upstream jev-latest model changes.
+    """
+    if (
+        not isinstance(threshold, (int, float))
+        or isinstance(threshold, bool)
+        or not (math.isfinite(threshold) and 0 <= threshold <= 100)
+    ):
+        raise ValueError("threshold must be a finite percentage between 0 and 100")
+    state = build_state(left, right)
+    fingerprint = {
+        "schema": 1,
+        "revision": os.environ.get("MANDOWN_JEV_CACHE_REVISION", "1"),
+        "endpoint": JEV_URL,
+        "model": JEV_MODEL,
+        "question": QUESTION_NAME,
+        "instructions": instructions,
+        "state": state,
+    }
+    key = hashlib.sha256(
+        json.dumps(fingerprint, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+    if cache is not None and cache is not False and not isinstance(cache, JevCache):
+        raise TypeError("cache must be a JevCache, False or None")
+    store = default_cache() if cache is None else (None if cache is False else cache)
+    with comparison_lock(key):
+        row = None
+        if store is not None:
+            try:
+                row = store.get(key)
+            except (OSError, sqlite3.Error, ValueError):
+                pass  # Cache availability never determines matching correctness.
+        if row is not None:
+            probability = row["probability"]
+            return {
+                "started_at": utc_now(),
+                "finished_at": utc_now(),
+                "elapsed_seconds": 0.0,
+                "status": "ok",
+                "attempts": 0,
+                "error": None,
+                "model": row["model"],
+                "probability": probability,
+                "percentage": round(probability * 100, 4),
+                "decision": "SAME" if probability * 100 >= threshold else "DIFFERENT",
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "tokens_remaining": None,
+                "api_key_slot": None,
+                "record_a": state["record_a"],
+                "record_b": state["record_b"],
+                "cache_hit": True,
+                "cache_key": key,
+            }
+        result = _call_jev_uncached(
+            left,
+            right,
+            api_key,
+            threshold,
+            instructions=instructions,
+            session=session,
+            sleep=sleep,
+            max_retries=max_retries,
+            key_state=key_state,
+        )
+        result.update(cache_hit=False, cache_key=key)
+        if store is not None:
+            try:
+                store.put(key, result)
+            except (OSError, sqlite3.Error, ValueError):
+                pass
+        return result

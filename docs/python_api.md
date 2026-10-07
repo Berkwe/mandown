@@ -611,3 +611,21 @@ for calibration provenance, credential setup, CLI usage, and timing logs.
 uses the same async source-discovery API. `--json` emits the merged result,
 provider decisions, timing data and errors as one JSON object. Without it,
 links and resolution methods are printed in a human-readable format.
+
+### Jev comparison cache
+
+`mandown.JevCache(path, ttl=30 * 24 * 60 * 60)` provides persistent SQLite score
+storage. `export_seed(path)` and `import_seed(path)` return the number of exported
+or imported live scores. Seed timestamps retain their original expiry window.
+
+`mandown.jev.call_jev(..., cache=None)` uses the default persistent cache;
+`cache=False` bypasses it and `cache=JevCache(...)` supplies a custom cache.
+A hit returns `cache_hit=True`, `cache_key`, zero attempts and zero new token
+usage, with `decision` calculated using the current threshold. A miss returns
+`cache_hit=False`; all existing retry and key-failover behavior is retained.
+`search_sources()` exposes this information in provider comparison diagnostics.
+
+Source discovery checks the score cache before requiring an API key. It still
+fetches candidate metadata to verify the fingerprint. Direct links and exact
+identifier matches continue to bypass Jev altogether. Successful positive and
+negative scores are cached; exceptions and HTTP failures are not.

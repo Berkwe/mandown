@@ -132,7 +132,9 @@ dmypy.json
 .pyre/
 
 # Local-only experiments, tests and private runtime artifacts
-/tests/
+/tests/*
+!/tests/test_jev_cache.py
+!/tests/test_source_search.py
 /test_*.py
 /test_*/
 /optimize_jev.py
@@ -151,3 +153,9 @@ dmypy.json
 /id_ed25519*
 /private/
 /secrets/
+
+# Persistent Jev scores remain local; share explicit JSON seeds instead.
+*.sqlite3
+*.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm

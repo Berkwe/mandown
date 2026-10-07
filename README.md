@@ -182,3 +182,41 @@ its link is missing. Naver/WEBTOON are external-link-only. Set
 `JEVMODEL_API_KEY` (and optional fallback keys) in the environment for uncertain
 JEV candidates; direct links and exact identity matches need no key.
 See [the source discovery API](docs/python_api.md#search_sourcesanilist_id--threshold540-candidate_limit3).
+
+### Persistent Jev comparison cache
+
+Source discovery reuses successful Jev scores in a local SQLite cache (30-day
+TTL), including negative matches. Identical inputs need no Jev key on a cache hit;
+new or expired comparisons still need one. Metadata lookup and source searches
+still run, so cached identity scores do not freeze chapter availability.
+
+- Default: `$XDG_CACHE_HOME/mandown/jev.sqlite3` or `~/.cache/mandown/jev.sqlite3`.
+- `MANDOWN_JEV_CACHE=/path/to/jev.sqlite3` selects a persistent database.
+- `MANDOWN_JEV_CACHE=off` disables caching.
+- `MANDOWN_JEV_CACHE_REVISION=2` invalidates previous scores after an upstream
+  `jev-latest` model update. The provider alias does not expose model revisions.
+
+The cache fingerprint covers the exact normalized comparison records, prompt,
+model, endpoint and cache revision, not the threshold or API key. Changing the
+threshold reevaluates the saved probability without another API call. Cache
+failures fall back to ordinary comparison; API failures are never saved.
+Identical concurrent requests are coalesced within one Python process; independent
+processes have atomic SQLite writes but may both compare a simultaneous miss.
+
+Share explicitly reviewed score snapshots, not the runtime database or logs:
+
+```python
+from mandown import JevCache
+
+cache = JevCache("/path/to/jev.sqlite3")
+cache.export_seed("jev-seed.json")
+# Another installation, before search_sources():
+JevCache("/other/path/jev.sqlite3").import_seed("jev-seed.json")
+```
+
+Seeds contain only fingerprints, probabilities, model names and original
+creation timestamps. Import validates the entire snapshot before writing,
+preserves newer local entries and skips expired scores. Seed import is explicit;
+no remote snapshot is downloaded automatically. A shared seed removes the key
+requirement only for matching, unexpired inputs. Preserve the upstream license
+when distributing library changes.

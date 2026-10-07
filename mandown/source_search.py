@@ -412,9 +412,6 @@ class _ProviderResolver:
                 selected.append(candidate)
                 if len(selected) == self.candidate_limit:
                     break
-        if selected and not self.keys:
-            self.event("JEV_ERROR", "JEVMODEL_API_KEY eksik; adaylar kabul edilmedi.", phase=phase)
-            return False
         for candidate in selected:
             self.attempted.add(catalogs.dedupe_key(self.provider, candidate["result"]))
         jobs = [self.executor.submit(self.compare_one, candidate) for candidate in selected]

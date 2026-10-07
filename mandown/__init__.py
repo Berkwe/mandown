@@ -45,6 +45,7 @@ from .errors import (
     SourceResponseError,
 )
 from .io import MD_METADATA_FILE
+from .jev_cache import JevCache
 from .processor import (
     ProcessConfig,
     ProcessOps,
