@@ -188,6 +188,44 @@ def test_get_manga_uses_id_variable_and_parses_nullable_values() -> None:
     assert result.external_links == ()
 
 
+def test_matching_fields_parse_start_year_and_creator_aliases() -> None:
+    media = {
+        **page_payload()["data"]["Page"]["media"][0],
+        "description": "Description",
+        "chapters": 10,
+        "volumes": 1,
+        "genres": ["Action"],
+        "externalLinks": [],
+        "startDate": {"year": 2018},
+        "staff": {
+            "edges": [
+                {
+                    "role": "Story & Art",
+                    "node": {
+                        "id": 123,
+                        "name": {
+                            "full": "Creator Name",
+                            "native": "작가",
+                            "alternative": ["Pen Name", "Creator Name"],
+                        },
+                    },
+                }
+            ]
+        },
+    }
+    session = FakeSession([FakeResponse({"data": {"Media": media}})])
+    client = AniListClient(session=session)
+
+    result = asyncio.run(client.get_manga(105398, fields=AniListFieldSet.MATCHING))
+
+    query = session.calls[0][1]["json"]["query"]
+    assert "startDate { year }" in query
+    assert "staff(perPage: 25" in query
+    assert result.start_year == 2018
+    assert result.creators[0].role == "Story & Art"
+    assert result.creators[0].names == ("Creator Name", "작가", "Pen Name")
+
+
 @pytest.mark.parametrize("per_page", [1, ANILIST_MAX_PER_PAGE])
 def test_python_client_accepts_api_page_boundaries(per_page: int) -> None:
     client = AniListClient(session=FakeSession([FakeResponse(page_payload([]))]))
